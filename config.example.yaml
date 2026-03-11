@@ -1,0 +1,53 @@
+# Optional user-scoped configuration for `~/.outline-agent/config.yaml`.
+# Environment variables and CLI flags can still override individual fields at runtime.
+
+server:
+  host: 127.0.0.1
+  port: 8787
+
+outline:
+  api_base_url: ""
+  api_key: ""
+  webhook_signing_secret: ""
+  agent_user_id: ""
+
+trigger:
+  mode: mention
+  mention_aliases:
+    - "@agent"
+
+model:
+  ref: null
+
+model_profiles:
+  default: demo/gpt-4.1-mini
+  profiles:
+    demo:
+      provider: openai-responses
+      base_url: https://your-gateway.example.com/openai/v1
+      api_key: ""
+      models:
+        - gpt-4.1-mini
+
+prompts:
+  system_prompt_packs:
+    - outline_style
+
+features:
+  memory_actions: true
+  memory_updates: true
+  document_updates: true
+  tool_use: true
+  thread_sessions: true
+  reactions: true
+  related_documents: true
+  progress_comments: true
+
+runtime:
+  dry_run: false
+  # Relative runtime paths resolve from this config file's directory.
+  # workspace_root: data/agents
+
+logging:
+  level: DEBUG
+  # file_path: logs/outline-agent.log

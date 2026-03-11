@@ -1,0 +1,49 @@
+{
+  "id": "2383a199-95a6-435c-9eb5-efd22c9d7bd9",
+  "actorId": "6142fd16-1614-4062-b9ad-211cfef651e6",
+  "webhookSubscriptionId": "1b4d4804-c31f-44fe-9d95-0d24cdb66b92",
+  "createdAt": "2026-03-09T04:50:43.375Z",
+  "event": "comments.create",
+  "payload": {
+    "id": "cad435c3-1cb9-4dd5-9254-d355b02fd795",
+    "model": {
+      "id": "cad435c3-1cb9-4dd5-9254-d355b02fd795",
+      "data": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "text": "Kickoff webhook test from agent runtime.",
+                "type": "text"
+              }
+            ]
+          }
+        ]
+      },
+      "documentId": "d8119461-65ae-4218-9f70-514c06ca4d2a",
+      "parentCommentId": null,
+      "createdBy": {
+        "id": "6142fd16-1614-4062-b9ad-211cfef651e6",
+        "name": "Sincerely, Your Agent 😘",
+        "avatarUrl": "/api/attachments.redirect?id=f71a7383-f944-4846-8755-1ed21c94bce9",
+        "color": "#e600e0",
+        "role": "member",
+        "isSuspended": false,
+        "createdAt": "2026-03-07T03:33:01.027Z",
+        "updatedAt": "2026-03-09T04:49:09.333Z",
+        "deletedAt": null,
+        "lastActiveAt": "2026-03-09T04:49:09.333Z",
+        "timezone": "America/New_York"
+      },
+      "createdById": "6142fd16-1614-4062-b9ad-211cfef651e6",
+      "resolvedAt": null,
+      "resolvedBy": null,
+      "resolvedById": null,
+      "createdAt": "2026-03-09T04:50:43.364Z",
+      "updatedAt": "2026-03-09T04:50:43.364Z",
+      "reactions": []
+    }
+  }
+}

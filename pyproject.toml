@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "outline-agent"
+version = "0.1.0"
+description = "Webhook-driven Outline thread agent"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Gavin Gong", email = "gavin@gong.host" },
+]
+dependencies = [
+  "fastapi>=0.110",
+  "httpx>=0.26",
+  "loguru>=0.7",
+  "markdown-it-py>=3.0",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.2",
+  "pyyaml>=6.0",
+  "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pre-commit>=3.7",
+  "pytest>=8.0",
+  "ruff>=0.4",
+]
+
+[project.scripts]
+outline-agent = "outline_agent.cli:main"
+outline-agent-comments = "outline_agent.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+outline_agent = [
+  "assets/prompts/*.md",
+  "assets/prompts/packs/*.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

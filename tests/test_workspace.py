@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from outline_agent.state.workspace import CollectionWorkspaceManager
+
+
+def test_collection_workspace_manager_bootstraps_memory_files(tmp_path: Path) -> None:
+    manager = CollectionWorkspaceManager(tmp_path / "agents")
+    workspace = manager.ensure(
+        collection_id="107b2669-e0ad-4abd-a66e-28305124edc8",
+        collection_name="Outline Agent Dev Sandbox",
+    )
+
+    assert workspace.root_dir.exists()
+    assert workspace.scratch_dir.exists()
+    assert workspace.threads_dir.exists()
+    assert workspace.system_prompt_path.exists()
+    assert workspace.memory_path.exists()
+
+    memory_text = workspace.memory_path.read_text(encoding="utf-8")
+    assert "Collection ID: 107b2669-e0ad-4abd-a66e-28305124edc8" in memory_text
+    assert "Collection Name: Outline Agent Dev Sandbox" in memory_text
+
+    prompt_context = workspace.load_prompt_context(max_chars=10_000)
+    assert "MEMORY.md" in prompt_context
+
+
+def test_collection_workspace_manager_bootstraps_thread_session_files(tmp_path: Path) -> None:
+    manager = CollectionWorkspaceManager(tmp_path / "agents")
+    workspace = manager.ensure(
+        collection_id="107b2669-e0ad-4abd-a66e-28305124edc8",
+        collection_name="Outline Agent Dev Sandbox",
+    )
+
+    thread_workspace = manager.ensure_thread(
+        workspace,
+        thread_id="root-user-comment",
+        document_id="doc-123",
+        document_title="Outline Agent Kickoff",
+    )
+
+    assert thread_workspace.root_dir.exists()
+    assert thread_workspace.work_dir.exists()
+    assert thread_workspace.session_path.exists()
+    assert thread_workspace.state_path.exists()
+    assert thread_workspace.prompt_path.exists()
+
+    session_text = thread_workspace.session_path.read_text(encoding="utf-8")
+    assert "Thread ID: root-user-comment" in session_text
+    assert "Document Title: Outline Agent Kickoff" in session_text
+
+    thread_workspace.record_turn(
+        comment_id="comment-1",
+        user_comment="Please summarize this document.",
+        assistant_reply="Here is a short summary.",
+        document_id="doc-123",
+        document_title="Outline Agent Kickoff",
+        max_recent_turns=4,
+        max_turn_chars=200,
+    )
+    prompt_context = thread_workspace.load_prompt_context(max_chars=10_000)
+    assert "SESSION.md" in prompt_context
+    assert "interaction_count: 1" in prompt_context
+    assert "Please summarize this document." in prompt_context
+
+    thread_workspace.record_tool_run(
+        comment_id="comment-1",
+        status="applied",
+        summary="write_file[hello.sh] -> 20 chars ; run_shell[bash hello.sh] -> exit 0 ; stdout=hello",
+        step_summaries=[
+            "write_file[hello.sh] -> 20 chars",
+            "run_shell[bash hello.sh] -> exit 0 ; stdout=hello",
+        ],
+        max_recent_runs=4,
+        max_summary_chars=200,
+    )
+    prompt_context = thread_workspace.load_prompt_context(max_chars=10_000)
+    assert "recent_tool_runs" in prompt_context
+    assert "write_file[hello.sh]" in prompt_context
+
+    thread_workspace.record_progress_comment(
+        request_comment_id="comment-1",
+        status_comment_id="status-comment-1",
+        status="applied",
+        summary="Done — local workspace actions finished.",
+        actions=[
+            "planned round 1: write_file[hello.sh] | run_shell[bash hello.sh]",
+            "completed round 1: run_shell[bash hello.sh] -> exit 0 ; stdout=hello",
+        ],
+        max_recent_entries=4,
+        max_action_chars=200,
+    )
+    prompt_context = thread_workspace.load_prompt_context(max_chars=10_000)
+    assert "recent_progress_actions" in prompt_context
+    assert "status-comment-1" in prompt_context
+    assert "Done — local workspace actions finished." in prompt_context
