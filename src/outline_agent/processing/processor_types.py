@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..clients.model_client import ModelInputImage
 from ..clients.outline_client import OutlineCollection, OutlineComment, OutlineDocument
@@ -8,6 +8,7 @@ from ..managers.action_router_manager import ActionRoutingDecision
 from ..models.webhook_models import CommentModel
 from ..runtime.tool_runtime import UploadedAttachment
 from ..state.workspace import CollectionWorkspace, ThreadWorkspace
+from ..utils.attachment_context import AttachmentContextItem
 from ..utils.rich_text import MentionRef
 
 
@@ -115,12 +116,43 @@ class PreparedThreadContext:
     same_document_comment_context: str | None
     same_document_comment_preview: str | None
     related_documents_context: str | None
+    available_attachment_context: list[AttachmentContextItem]
+
+
+@dataclass(slots=True)
+class ActionPlanRequest:
+    comment_id: str
+    thread_workspace: ThreadWorkspace
+    collection: OutlineCollection | None
+    document: OutlineDocument
+    user_comment: str
+    comment_context: str
+    related_documents_context: str | None
+    available_attachment_context: list[AttachmentContextItem]
+    current_comment_image_count: int
+    input_images: list[ModelInputImage]
 
 
 @dataclass
 class ResolvedThreadTrigger:
     triggered_alias: str | None
     comments: list[OutlineComment]
+
+
+@dataclass(slots=True)
+class ActionPlanOutcome:
+    effective_document: OutlineDocument
+    document_creation_status: str | None = None
+    document_creation_preview: str | None = None
+    document_creation_context: str | None = None
+    created_document: OutlineDocument | None = None
+    document_update_status: str | None = None
+    document_update_preview: str | None = None
+    document_update_context: str | None = None
+    tool_execution_status: str | None = None
+    tool_execution_preview: str | None = None
+    tool_execution_context: str | None = None
+    uploaded_attachments: list[UploadedAttachment] = field(default_factory=list)
 
 
 @dataclass

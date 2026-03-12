@@ -125,22 +125,10 @@ def test_build_markdown_comment_data_preserves_progress_comment_formatting() -> 
 
 def test_normalize_comment_markdown_rewrites_unsupported_heading_table_and_code_block() -> None:
     result = normalize_comment_markdown(
-        "# Plan\n\n"
-        "| Step | Owner |\n"
-        "| --- | --- |\n"
-        "| Ship | Agent |\n\n"
-        "```bash\n"
-        "npm test\n"
-        "```"
+        "# Plan\n\n| Step | Owner |\n| --- | --- |\n| Ship | Agent |\n\n```bash\nnpm test\n```"
     )
 
-    assert result == (
-        "**Plan**\n\n"
-        "Table:\n"
-        "- Step: Ship; Owner: Agent\n\n"
-        "Code:\n"
-        "- npm test"
-    )
+    assert result == ("**Plan**\n\nTable:\n- Step: Ship; Owner: Agent\n\nCode:\n- npm test")
 
 
 def test_build_markdown_comment_data_uses_safe_blocks_after_markdown_normalization() -> None:
@@ -176,11 +164,13 @@ def test_build_markdown_comment_data_uses_safe_blocks_after_markdown_normalizati
 
 
 def test_split_comment_text_breaks_long_reply_on_line_boundaries() -> None:
-    text = "\n".join([
-        "A" * 450,
-        "B" * 450,
-        "C" * 450,
-    ])
+    text = "\n".join(
+        [
+            "A" * 450,
+            "B" * 450,
+            "C" * 450,
+        ]
+    )
 
     chunks = split_comment_text(text, max_chars=1000)
 
@@ -200,11 +190,13 @@ def test_split_comment_text_breaks_single_very_long_line() -> None:
 
 
 def test_prepare_comment_chunks_adds_numbering_for_multi_part_reply() -> None:
-    text = "\n".join([
-        "A" * 450,
-        "B" * 450,
-        "C" * 450,
-    ])
+    text = "\n".join(
+        [
+            "A" * 450,
+            "B" * 450,
+            "C" * 450,
+        ]
+    )
 
     chunks = prepare_comment_chunks(text, max_chars=1000)
 
@@ -378,11 +370,13 @@ class MultipartUploadOutlineClient(OutlineClient):
 
 def test_outline_client_create_comment_splits_overlong_reply_into_multiple_comments() -> None:
     client = RecordingOutlineClient()
-    text = "\n".join([
-        "A" * 450,
-        "B" * 450,
-        "C" * 450,
-    ])
+    text = "\n".join(
+        [
+            "A" * 450,
+            "B" * 450,
+            "C" * 450,
+        ]
+    )
 
     result = asyncio.run(client.create_comment("doc-1", text, parent_comment_id="root-1"))
 
@@ -770,11 +764,11 @@ def test_outline_client_upload_attachment_builds_async_safe_multipart_request(
     body = captured["content"]
     assert isinstance(body, bytes)
     assert b'name="key"' in body
-    assert b'uploads/test/report.pdf' in body
+    assert b"uploads/test/report.pdf" in body
     assert b'name="token"' in body
-    assert b'abc123' in body
+    assert b"abc123" in body
     assert b'name="file"; filename="report.pdf"' in body
-    assert b'%PDF-1.7\nfake-pdf\n' in body
+    assert b"%PDF-1.7\nfake-pdf\n" in body
 
 
 def test_outline_client_create_document_posts_documents_create_payload() -> None:

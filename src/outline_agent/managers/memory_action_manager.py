@@ -383,11 +383,7 @@ def _append_entries_to_section(text: str, heading: str, entries: list[str]) -> t
     while section_end < len(lines) and not lines[section_end].startswith("## "):
         section_end += 1
 
-    existing = {
-        _normalize_match(line[2:])
-        for line in lines[heading_index + 1 : section_end]
-        if line.startswith("- ")
-    }
+    existing = {_normalize_match(line[2:]) for line in lines[heading_index + 1 : section_end] if line.startswith("- ")}
     appended: list[str] = []
     for entry in entries:
         normalized = _normalize_match(entry)

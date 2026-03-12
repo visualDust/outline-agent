@@ -101,6 +101,7 @@ class DocumentUpdateManager:
         user_comment: str,
         comment_context: str,
         related_documents_context: str | None,
+        local_workspace_context: str | None,
         current_comment_image_count: int = 0,
         input_images: list[ModelInputImage] | None = None,
     ) -> DocumentUpdateProposal:
@@ -122,6 +123,7 @@ class DocumentUpdateManager:
             user_comment=user_comment,
             comment_context=comment_context,
             related_documents_context=related_documents_context,
+            local_workspace_context=local_workspace_context,
             current_comment_image_count=current_comment_image_count,
             sections=sections,
             relevant_sections=relevant_sections,
@@ -204,6 +206,7 @@ class DocumentUpdateManager:
         user_comment: str,
         comment_context: str,
         related_documents_context: str | None,
+        local_workspace_context: str | None,
         current_comment_image_count: int,
         sections: list[MarkdownSection],
         relevant_sections: list[MarkdownSection],
@@ -222,8 +225,7 @@ class DocumentUpdateManager:
 
         if document_text and not document_is_long:
             editable_context = (
-                "Full current document markdown:\n"
-                f"{_truncate(document_text, self.settings.max_document_update_chars)}"
+                f"Full current document markdown:\n{_truncate(document_text, self.settings.max_document_update_chars)}"
             )
             context_mode = "full-document"
         else:
@@ -239,9 +241,12 @@ class DocumentUpdateManager:
 
         related_documents_section = ""
         if related_documents_context:
-            related_documents_section = (
-                "Related documents in this collection:\n"
-                f"{related_documents_context}\n\n"
+            related_documents_section = f"Related documents in this collection:\n{related_documents_context}\n\n"
+        local_workspace_section = ""
+        if local_workspace_context:
+            local_workspace_section = (
+                "Reliable local workspace observations from attachment/file processing:\n"
+                f"{_truncate(local_workspace_context, self.settings.max_prompt_chars)}\n\n"
             )
         current_comment_image_section = ""
         if current_comment_image_count > 0:
@@ -264,6 +269,7 @@ class DocumentUpdateManager:
             f"{comment_context or '(no comment context)'}\n\n"
             f"{current_comment_image_section}"
             f"{related_documents_section}"
+            f"{local_workspace_section}"
             "Document outline (use section IDs exactly as listed):\n"
             f"{outline}\n\n"
             f"{editable_context}\n\n"
@@ -380,19 +386,27 @@ class DocumentUpdateManager:
         for operation in operations:
             target_section_id = _normalize_section_id(operation.target_section_id)
             new_markdown = normalize_markdown_text(operation.new_markdown)
-            if operation.op in {
-                "replace_section",
-                "insert_after_section",
-                "insert_before_section",
-            } and not target_section_id:
+            if (
+                operation.op
+                in {
+                    "replace_section",
+                    "insert_after_section",
+                    "insert_before_section",
+                }
+                and not target_section_id
+            ):
                 continue
-            if operation.op in {
-                "replace_section",
-                "insert_after_section",
-                "insert_before_section",
-                "append_document",
-                "replace_document",
-            } and new_markdown is None:
+            if (
+                operation.op
+                in {
+                    "replace_section",
+                    "insert_after_section",
+                    "insert_before_section",
+                    "append_document",
+                    "replace_document",
+                }
+                and new_markdown is None
+            ):
                 continue
 
             key = (operation.op, target_section_id, new_markdown)
@@ -436,9 +450,7 @@ def _format_relevant_sections(sections: list[MarkdownSection], max_chars_per_sec
 
     blocks: list[str] = []
     for section in sections:
-        blocks.append(
-            f"[{section.section_id}] {section.label}\n{_truncate(section.markdown, max_chars_per_section)}"
-        )
+        blocks.append(f"[{section.section_id}] {section.label}\n{_truncate(section.markdown, max_chars_per_section)}")
     return "\n\n".join(blocks)
 
 

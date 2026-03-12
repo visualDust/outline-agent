@@ -23,7 +23,8 @@ Return strict JSON only with this schema:
 }
 
 Rules:
-- `decision = "no-create"` when the user is only asking to edit the current document, asking a question, or replying conversationally
+- `decision = "no-create"` when the user is only asking to edit the current
+  document, asking a question, or replying conversationally
 - `decision = "blocked"` when the user seems to want a new document but the request is too ambiguous to create safely
 - Create a new document only when the user clearly wants a separate document, not merely changes to the current one
 - The new document should belong to the current collection
@@ -56,6 +57,7 @@ class DocumentCreationManager:
         user_comment: str,
         comment_context: str,
         related_documents_context: str | None,
+        local_workspace_context: str | None,
         current_comment_image_count: int = 0,
         input_images: list[ModelInputImage] | None = None,
     ) -> DocumentCreationProposal:
@@ -66,6 +68,7 @@ class DocumentCreationManager:
             user_comment=user_comment,
             comment_context=comment_context,
             related_documents_context=related_documents_context,
+            local_workspace_context=local_workspace_context,
             current_comment_image_count=current_comment_image_count,
         )
         raw = await self._generate_with_optional_images(
@@ -81,7 +84,12 @@ class DocumentCreationManager:
         proposal = DocumentCreationProposal.model_validate(payload)
         return self._sanitize(proposal)
 
-    def preview(self, proposal: DocumentCreationProposal, *, created_document: OutlineDocument | None = None) -> str | None:
+    def preview(
+        self,
+        proposal: DocumentCreationProposal,
+        *,
+        created_document: OutlineDocument | None = None,
+    ) -> str | None:
         if proposal.decision == "no-create":
             return None
         if proposal.decision == "blocked":
@@ -129,6 +137,7 @@ class DocumentCreationManager:
         user_comment: str,
         comment_context: str,
         related_documents_context: str | None,
+        local_workspace_context: str | None,
         current_comment_image_count: int,
     ) -> str:
         collection_name = collection.name if collection and collection.name else document.collection_id or "(unknown)"
@@ -145,9 +154,12 @@ class DocumentCreationManager:
             )
         related_documents_section = ""
         if related_documents_context:
-            related_documents_section = (
-                "Related documents in this collection:\n"
-                f"{related_documents_context}\n\n"
+            related_documents_section = f"Related documents in this collection:\n{related_documents_context}\n\n"
+        local_workspace_section = ""
+        if local_workspace_context:
+            local_workspace_section = (
+                "Reliable local workspace observations from attachment/file processing:\n"
+                f"{_truncate(local_workspace_context, self.settings.max_prompt_chars)}\n\n"
             )
         document_excerpt = _truncate(document.text or "", self.settings.max_document_chars)
         return (
@@ -162,6 +174,7 @@ class DocumentCreationManager:
             f"{comment_context or '(no comment context)'}\n\n"
             f"{current_comment_image_section}"
             f"{related_documents_section}"
+            f"{local_workspace_section}"
             "Current document excerpt:\n"
             f"{document_excerpt or '(document text unavailable)'}\n\n"
             "Latest user comment:\n"

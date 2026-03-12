@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import sys
 from collections.abc import Sequence
@@ -8,6 +9,7 @@ from pathlib import Path
 
 import uvicorn
 
+from .bootstrap import validate_outline_runtime_identity
 from .core.config import (
     APP_NAME,
     OUTLINE_AGENT_CONFIG_PATH_ENV,
@@ -19,8 +21,8 @@ from .core.config import (
     get_config_root,
     get_package_prompt_pack_dir,
     get_package_prompt_path,
-    get_user_config_path,
     get_settings,
+    get_user_config_path,
     get_user_config_root,
 )
 from .core.logging import configure_logging, logger
@@ -99,6 +101,19 @@ def _run_start(args: argparse.Namespace) -> int:
             )
 
         try:
+            current_user = asyncio.run(validate_outline_runtime_identity(settings))
+        except Exception as exc:
+            logger.exception("Outline API identity validation failed at startup")
+            print(f"[{APP_NAME}] error: outline API identity validation failed: {exc}", file=sys.stderr)
+            return 2
+        else:
+            logger.info(
+                "Validated Outline runtime identity at startup: {} ({})",
+                current_user.id,
+                current_user.name or "unknown",
+            )
+
+        try:
             uvicorn.run(
                 "outline_agent.app:app",
                 host=settings.host,
@@ -163,6 +178,9 @@ def _print_startup_report(settings: AppSettings) -> None:
         f"[{APP_NAME}] bind: {settings.host}:{settings.port}",
         f"[{APP_NAME}] trigger mode: {settings.trigger_mode}",
         f"[{APP_NAME}] dry run: {settings.dry_run}",
+        f"[{APP_NAME}] tool execution rounds: {settings.tool_execution_max_rounds}",
+        f"[{APP_NAME}] planner step budget: {settings.tool_execution_max_steps}",
+        f"[{APP_NAME}] execution chunk size: {settings.tool_execution_chunk_size}",
     ]
     for line in lines:
         print(line, file=sys.stderr)
@@ -182,8 +200,6 @@ def _collect_startup_warnings(settings: AppSettings) -> list[str]:
         warnings.append("OUTLINE_API_KEY is not configured")
     if not settings.outline_webhook_signing_secret:
         warnings.append("OUTLINE_WEBHOOK_SIGNING_SECRET is not configured")
-    if not settings.outline_agent_user_id:
-        warnings.append("OUTLINE_AGENT_USER_ID is not configured")
     return warnings
 
 

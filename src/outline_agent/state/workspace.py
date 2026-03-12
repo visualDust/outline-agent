@@ -6,6 +6,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .thread_state import build_initial_thread_state, build_thread_state_payload
+from .thread_state import extract_section_text as _extract_section_text
+from .thread_state import format_thread_state_for_prompt as _format_thread_state_for_prompt
+from .thread_state import normalize_participants as _normalize_participants
+from .thread_state import normalize_progress_comment_map as _normalize_progress_comment_map
+from .thread_state import normalize_progress_comment_states as _normalize_progress_comment_states
+from .thread_state import normalize_recent_comments as _normalize_recent_comments
+from .thread_state import normalize_recent_progress_events as _normalize_recent_progress_events
+from .thread_state import normalize_recent_tool_runs as _normalize_recent_tool_runs
+from .thread_state import normalize_recent_turns as _normalize_recent_turns
+from .thread_state import slugify as _slugify
+from .thread_state import sort_recent_comments as _sort_recent_comments
+from .thread_state import timestamp_not_older as _timestamp_not_older
+from .thread_state import truncate_text as _truncate
+from .thread_state import upsert_participant as _upsert_participant
+
 INITIAL_SYSTEM_TEMPLATE = """# 00_SYSTEM.md - Collection Agent System Prompt
 
 You are the dedicated Outline comment agent for the collection below.
@@ -165,11 +181,7 @@ class ThreadWorkspace:
         return events[-limit:]
 
     def append_event(self, *, event_key: str, payload: dict[str, Any]) -> bool:
-        existing_keys = {
-            item.get("event_key")
-            for item in self.read_events()
-            if isinstance(item.get("event_key"), str)
-        }
+        existing_keys = {item.get("event_key") for item in self.read_events() if isinstance(item.get("event_key"), str)}
         if event_key in existing_keys:
             return False
 
@@ -197,7 +209,11 @@ class ThreadWorkspace:
         recent_turns = _normalize_recent_turns(state.get("recent_turns"))
         recent_tool_runs = _normalize_recent_tool_runs(state.get("recent_tool_runs"))
         progress_comment_map = _normalize_progress_comment_map(state.get("progress_comment_map"))
-        recent_progress_actions = _normalize_recent_progress_actions(state.get("recent_progress_actions"))
+        progress_comment_states = _normalize_progress_comment_states(
+            state.get("progress_comment_states"),
+            legacy_value=state.get("recent_progress_actions"),
+        )
+        recent_progress_events = _normalize_recent_progress_events(state.get("recent_progress_events"))
         recent_comments = _normalize_recent_comments(state.get("recent_comments"))
         participants = _normalize_participants(state.get("participants"))
 
@@ -245,9 +261,7 @@ class ThreadWorkspace:
             comment_count += 1
 
         current_last_comment_at = (
-            state.get("last_comment_at")
-            if isinstance(state.get("last_comment_at"), str)
-            else None
+            state.get("last_comment_at") if isinstance(state.get("last_comment_at"), str) else None
         )
         if _timestamp_not_older(created_at, current_last_comment_at) or not state.get("last_comment_id"):
             last_comment_id = comment_id
@@ -258,23 +272,24 @@ class ThreadWorkspace:
             last_comment_at = current_last_comment_at
             last_comment_preview = state.get("last_comment_preview")
 
-        updated_state = {
-            "thread_id": self.thread_id,
-            "document_id": document_id,
-            "document_title": document_title,
-            "last_comment_id": last_comment_id,
-            "last_comment_at": last_comment_at,
-            "last_comment_preview": last_comment_preview,
-            "interaction_count": interaction_count,
-            "comment_count": comment_count,
-            "assistant_turn_count": assistant_turn_count,
-            "participants": participants,
-            "recent_comments": recent_comments,
-            "recent_turns": recent_turns,
-            "recent_tool_runs": recent_tool_runs,
-            "progress_comment_map": progress_comment_map,
-            "recent_progress_actions": recent_progress_actions,
-        }
+        updated_state = build_thread_state_payload(
+            thread_id=self.thread_id,
+            document_id=document_id,
+            document_title=document_title,
+            last_comment_id=last_comment_id,
+            last_comment_at=last_comment_at,
+            last_comment_preview=last_comment_preview,
+            interaction_count=interaction_count,
+            comment_count=comment_count,
+            assistant_turn_count=assistant_turn_count,
+            participants=participants,
+            recent_comments=recent_comments,
+            recent_turns=recent_turns,
+            recent_tool_runs=recent_tool_runs,
+            progress_comment_map=progress_comment_map,
+            progress_comment_states=progress_comment_states,
+            recent_progress_events=recent_progress_events,
+        )
         self._write_state(updated_state)
 
     def record_turn(
@@ -293,7 +308,11 @@ class ThreadWorkspace:
         recent_turns = _normalize_recent_turns(state.get("recent_turns"))
         recent_tool_runs = _normalize_recent_tool_runs(state.get("recent_tool_runs"))
         progress_comment_map = _normalize_progress_comment_map(state.get("progress_comment_map"))
-        recent_progress_actions = _normalize_recent_progress_actions(state.get("recent_progress_actions"))
+        progress_comment_states = _normalize_progress_comment_states(
+            state.get("progress_comment_states"),
+            legacy_value=state.get("recent_progress_actions"),
+        )
+        recent_progress_events = _normalize_recent_progress_events(state.get("recent_progress_events"))
         recent_comments = _normalize_recent_comments(state.get("recent_comments"))
         participants = _normalize_participants(state.get("participants"))
         recent_turns.append(
@@ -328,23 +347,24 @@ class ThreadWorkspace:
             },
         )
 
-        updated_state = {
-            "thread_id": self.thread_id,
-            "document_id": document_id,
-            "document_title": document_title,
-            "last_comment_id": state.get("last_comment_id") or comment_id,
-            "last_comment_at": state.get("last_comment_at"),
-            "last_comment_preview": state.get("last_comment_preview"),
-            "interaction_count": interaction_count + 1,
-            "comment_count": comment_count,
-            "assistant_turn_count": assistant_turn_count + 1,
-            "participants": participants,
-            "recent_comments": recent_comments,
-            "recent_turns": recent_turns,
-            "recent_tool_runs": recent_tool_runs,
-            "progress_comment_map": progress_comment_map,
-            "recent_progress_actions": recent_progress_actions,
-        }
+        updated_state = build_thread_state_payload(
+            thread_id=self.thread_id,
+            document_id=document_id,
+            document_title=document_title,
+            last_comment_id=state.get("last_comment_id") or comment_id,
+            last_comment_at=state.get("last_comment_at"),
+            last_comment_preview=state.get("last_comment_preview"),
+            interaction_count=interaction_count + 1,
+            comment_count=comment_count,
+            assistant_turn_count=assistant_turn_count + 1,
+            participants=participants,
+            recent_comments=recent_comments,
+            recent_turns=recent_turns,
+            recent_tool_runs=recent_tool_runs,
+            progress_comment_map=progress_comment_map,
+            progress_comment_states=progress_comment_states,
+            recent_progress_events=recent_progress_events,
+        )
         self._write_state(updated_state)
 
     def record_tool_run(
@@ -361,13 +381,15 @@ class ThreadWorkspace:
         recent_turns = _normalize_recent_turns(state.get("recent_turns"))
         recent_tool_runs = _normalize_recent_tool_runs(state.get("recent_tool_runs"))
         progress_comment_map = _normalize_progress_comment_map(state.get("progress_comment_map"))
-        recent_progress_actions = _normalize_recent_progress_actions(state.get("recent_progress_actions"))
+        progress_comment_states = _normalize_progress_comment_states(
+            state.get("progress_comment_states"),
+            legacy_value=state.get("recent_progress_actions"),
+        )
+        recent_progress_events = _normalize_recent_progress_events(state.get("recent_progress_events"))
         recent_comments = _normalize_recent_comments(state.get("recent_comments"))
         participants = _normalize_participants(state.get("participants"))
         cleaned_steps = [
-            _truncate(item, max_summary_chars)
-            for item in step_summaries
-            if isinstance(item, str) and item.strip()
+            _truncate(item, max_summary_chars) for item in step_summaries if isinstance(item, str) and item.strip()
         ]
         recent_tool_runs.append(
             {
@@ -403,23 +425,24 @@ class ThreadWorkspace:
             },
         )
 
-        updated_state = {
-            "thread_id": self.thread_id,
-            "document_id": state.get("document_id"),
-            "document_title": state.get("document_title"),
-            "last_comment_id": state.get("last_comment_id"),
-            "last_comment_at": state.get("last_comment_at"),
-            "last_comment_preview": state.get("last_comment_preview"),
-            "interaction_count": interaction_count,
-            "comment_count": comment_count,
-            "assistant_turn_count": assistant_turn_count,
-            "participants": participants,
-            "recent_comments": recent_comments,
-            "recent_turns": recent_turns,
-            "recent_tool_runs": recent_tool_runs,
-            "progress_comment_map": progress_comment_map,
-            "recent_progress_actions": recent_progress_actions,
-        }
+        updated_state = build_thread_state_payload(
+            thread_id=self.thread_id,
+            document_id=state.get("document_id"),
+            document_title=state.get("document_title"),
+            last_comment_id=state.get("last_comment_id"),
+            last_comment_at=state.get("last_comment_at"),
+            last_comment_preview=state.get("last_comment_preview"),
+            interaction_count=interaction_count,
+            comment_count=comment_count,
+            assistant_turn_count=assistant_turn_count,
+            participants=participants,
+            recent_comments=recent_comments,
+            recent_turns=recent_turns,
+            recent_tool_runs=recent_tool_runs,
+            progress_comment_map=progress_comment_map,
+            progress_comment_states=progress_comment_states,
+            recent_progress_events=recent_progress_events,
+        )
         self._write_state(updated_state)
 
     def progress_comment_id_for(self, request_comment_id: str) -> str | None:
@@ -444,23 +467,33 @@ class ThreadWorkspace:
         recent_comments = _normalize_recent_comments(state.get("recent_comments"))
         participants = _normalize_participants(state.get("participants"))
         progress_comment_map = _normalize_progress_comment_map(state.get("progress_comment_map"))
-        recent_progress_actions = _normalize_recent_progress_actions(state.get("recent_progress_actions"))
+        progress_comment_states = _normalize_progress_comment_states(
+            state.get("progress_comment_states"),
+            legacy_value=state.get("recent_progress_actions"),
+        )
+        recent_progress_events = _normalize_recent_progress_events(state.get("recent_progress_events"))
 
         cleaned_actions = [
-            _truncate(item, max_action_chars)
-            for item in actions
-            if isinstance(item, str) and item.strip()
+            _truncate(item, max_action_chars) for item in actions if isinstance(item, str) and item.strip()
         ][-max_recent_entries:]
 
         if status_comment_id:
             progress_comment_map[request_comment_id] = status_comment_id
 
-        recent_progress_actions = [
-            item
-            for item in recent_progress_actions
-            if item["request_comment_id"] != request_comment_id
+        progress_comment_states = [
+            item for item in progress_comment_states if item["request_comment_id"] != request_comment_id
         ]
-        recent_progress_actions.append(
+        progress_entry = {
+            "request_comment_id": request_comment_id,
+            "status_comment_id": status_comment_id,
+            "status": _truncate(status, 40),
+            "summary": _truncate(summary, max_action_chars),
+            "actions": cleaned_actions,
+        }
+        progress_comment_states.append(progress_entry)
+        progress_comment_states = progress_comment_states[-max_recent_entries:]
+
+        recent_progress_events.append(
             {
                 "request_comment_id": request_comment_id,
                 "status_comment_id": status_comment_id,
@@ -469,48 +502,39 @@ class ThreadWorkspace:
                 "actions": cleaned_actions,
             }
         )
-        recent_progress_actions = recent_progress_actions[-max_recent_entries:]
+        recent_progress_events = recent_progress_events[-max_recent_entries:]
 
         retained_request_ids = {
             item["request_comment_id"]
-            for item in recent_progress_actions
+            for item in progress_comment_states
             if isinstance(item.get("request_comment_id"), str)
         }
         progress_comment_map = {
-            key: value
-            for key, value in progress_comment_map.items()
-            if key in retained_request_ids
+            key: value for key, value in progress_comment_map.items() if key in retained_request_ids
         }
 
-        updated_state = {
-            "thread_id": self.thread_id,
-            "document_id": state.get("document_id"),
-            "document_title": state.get("document_title"),
-            "last_comment_id": state.get("last_comment_id"),
-            "last_comment_at": state.get("last_comment_at"),
-            "last_comment_preview": state.get("last_comment_preview"),
-            "interaction_count": (
-                state.get("interaction_count")
-                if isinstance(state.get("interaction_count"), int)
-                else 0
+        updated_state = build_thread_state_payload(
+            thread_id=self.thread_id,
+            document_id=state.get("document_id"),
+            document_title=state.get("document_title"),
+            last_comment_id=state.get("last_comment_id"),
+            last_comment_at=state.get("last_comment_at"),
+            last_comment_preview=state.get("last_comment_preview"),
+            interaction_count=(
+                state.get("interaction_count") if isinstance(state.get("interaction_count"), int) else 0
             ),
-            "comment_count": (
-                state.get("comment_count")
-                if isinstance(state.get("comment_count"), int)
-                else 0
+            comment_count=(state.get("comment_count") if isinstance(state.get("comment_count"), int) else 0),
+            assistant_turn_count=(
+                state.get("assistant_turn_count") if isinstance(state.get("assistant_turn_count"), int) else 0
             ),
-            "assistant_turn_count": (
-                state.get("assistant_turn_count")
-                if isinstance(state.get("assistant_turn_count"), int)
-                else 0
-            ),
-            "participants": participants,
-            "recent_comments": recent_comments,
-            "recent_turns": recent_turns,
-            "recent_tool_runs": recent_tool_runs,
-            "progress_comment_map": progress_comment_map,
-            "recent_progress_actions": recent_progress_actions,
-        }
+            participants=participants,
+            recent_comments=recent_comments,
+            recent_turns=recent_turns,
+            recent_tool_runs=recent_tool_runs,
+            progress_comment_map=progress_comment_map,
+            progress_comment_states=progress_comment_states,
+            recent_progress_events=recent_progress_events,
+        )
         self._write_state(updated_state)
 
     def discussion_entry(self) -> dict[str, Any]:
@@ -526,9 +550,7 @@ class ThreadWorkspace:
             preview_parts.extend(item["text"] for item in recent_comments[-3:] if item.get("text"))
 
         participant_labels = [
-            item.get("name") or item.get("id")
-            for item in participants
-            if item.get("name") or item.get("id")
+            item.get("name") or item.get("id") for item in participants if item.get("name") or item.get("id")
         ]
         searchable_chunks = list(preview_parts)
         searchable_chunks.extend(item["text"] for item in recent_comments if item.get("text"))
@@ -645,23 +667,11 @@ class CollectionWorkspaceManager:
         if not state_path.exists():
             state_path.write_text(
                 json.dumps(
-                    {
-                        "thread_id": thread_id,
-                        "document_id": document_id,
-                        "document_title": document_title,
-                        "last_comment_id": None,
-                        "last_comment_at": None,
-                        "last_comment_preview": None,
-                        "interaction_count": 0,
-                        "comment_count": 0,
-                        "assistant_turn_count": 0,
-                        "participants": [],
-                        "recent_comments": [],
-                        "recent_turns": [],
-                        "recent_tool_runs": [],
-                        "progress_comment_map": {},
-                        "recent_progress_actions": [],
-                    },
+                    build_initial_thread_state(
+                        thread_id=thread_id,
+                        document_id=document_id,
+                        document_title=document_title,
+                    ),
                     ensure_ascii=False,
                     indent=2,
                 )
@@ -769,292 +779,3 @@ class CollectionWorkspaceManager:
             if marker not in text:
                 text += f"\n\n{marker}\n"
         session_path.write_text(text + "\n", encoding="utf-8")
-
-
-def _slugify(value: str) -> str:
-    normalized = re.sub(r"[^a-zA-Z0-9]+", "-", value).strip("-").lower()
-    return normalized or "collection"
-
-
-def _normalize_recent_turns(value: Any) -> list[dict[str, str]]:
-    if not isinstance(value, list):
-        return []
-
-    normalized: list[dict[str, str]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        comment_id = item.get("comment_id")
-        user_comment = item.get("user_comment")
-        assistant_reply = item.get("assistant_reply")
-        if not isinstance(comment_id, str) or not isinstance(user_comment, str) or not isinstance(assistant_reply, str):
-            continue
-        normalized.append(
-            {
-                "comment_id": comment_id,
-                "user_comment": user_comment,
-                "assistant_reply": assistant_reply,
-            }
-        )
-    return normalized
-
-
-def _normalize_recent_tool_runs(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-
-    normalized: list[dict[str, Any]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        comment_id = item.get("comment_id")
-        status = item.get("status")
-        summary = item.get("summary")
-        steps = item.get("steps")
-        if not isinstance(comment_id, str) or not isinstance(status, str) or not isinstance(summary, str):
-            continue
-        normalized.append(
-            {
-                "comment_id": comment_id,
-                "status": status,
-                "summary": summary,
-                "steps": [step for step in steps if isinstance(step, str)] if isinstance(steps, list) else [],
-            }
-        )
-    return normalized
-
-
-def _normalize_recent_comments(value: Any) -> list[dict[str, str | None]]:
-    if not isinstance(value, list):
-        return []
-
-    normalized: list[dict[str, str | None]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        comment_id = item.get("comment_id")
-        text = item.get("text")
-        if not isinstance(comment_id, str) or not isinstance(text, str):
-            continue
-        author_id = item.get("author_id")
-        author_name = item.get("author_name")
-        created_at = item.get("created_at")
-        normalized.append(
-            {
-                "comment_id": comment_id,
-                "author_id": author_id if isinstance(author_id, str) else None,
-                "author_name": author_name if isinstance(author_name, str) else None,
-                "text": text,
-                "created_at": created_at if isinstance(created_at, str) else None,
-            }
-        )
-    return normalized
-
-
-def _normalize_progress_comment_map(value: Any) -> dict[str, str]:
-    if not isinstance(value, dict):
-        return {}
-
-    normalized: dict[str, str] = {}
-    for key, item in value.items():
-        if not isinstance(key, str) or not isinstance(item, str):
-            continue
-        if not key.strip() or not item.strip():
-            continue
-        normalized[key] = item
-    return normalized
-
-
-def _normalize_recent_progress_actions(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-
-    normalized: list[dict[str, Any]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        request_comment_id = item.get("request_comment_id")
-        status = item.get("status")
-        summary = item.get("summary")
-        if not isinstance(request_comment_id, str) or not isinstance(status, str) or not isinstance(summary, str):
-            continue
-        status_comment_id = item.get("status_comment_id")
-        actions = item.get("actions")
-        normalized.append(
-            {
-                "request_comment_id": request_comment_id,
-                "status_comment_id": status_comment_id if isinstance(status_comment_id, str) else None,
-                "status": status,
-                "summary": summary,
-                "actions": (
-                    [action for action in actions if isinstance(action, str)]
-                    if isinstance(actions, list)
-                    else []
-                ),
-            }
-        )
-    return normalized
-
-
-def _normalize_participants(value: Any) -> list[dict[str, str | None]]:
-    if not isinstance(value, list):
-        return []
-
-    normalized: list[dict[str, str | None]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        participant_id = item.get("id")
-        participant_name = item.get("name")
-        if not isinstance(participant_id, str) and not isinstance(participant_name, str):
-            continue
-        normalized.append(
-            {
-                "id": participant_id if isinstance(participant_id, str) else None,
-                "name": participant_name if isinstance(participant_name, str) else None,
-            }
-        )
-    return normalized
-
-
-def _format_thread_state_for_prompt(state: dict[str, Any]) -> list[str]:
-    lines: list[str] = []
-    comment_count = state.get("comment_count")
-    if isinstance(comment_count, int):
-        lines.append(f"- comment_count: {comment_count}")
-
-    interaction_count = state.get("interaction_count")
-    if isinstance(interaction_count, int):
-        lines.append(f"- interaction_count: {interaction_count}")
-
-    assistant_turn_count = state.get("assistant_turn_count")
-    if isinstance(assistant_turn_count, int):
-        lines.append(f"- assistant_turn_count: {assistant_turn_count}")
-
-    last_comment_id = state.get("last_comment_id")
-    if isinstance(last_comment_id, str) and last_comment_id:
-        lines.append(f"- last_comment_id: {last_comment_id}")
-
-    last_comment_at = state.get("last_comment_at")
-    if isinstance(last_comment_at, str) and last_comment_at:
-        lines.append(f"- last_comment_at: {last_comment_at}")
-
-    participants = _normalize_participants(state.get("participants"))
-    if participants:
-        labels = [item.get("name") or item.get("id") for item in participants if item.get("name") or item.get("id")]
-        if labels:
-            lines.append("- participants: " + " | ".join(labels))
-
-    recent_comments = _normalize_recent_comments(state.get("recent_comments"))
-    if recent_comments:
-        lines.append("- recent_comments:")
-        for index, item in enumerate(recent_comments, start=1):
-            author = item.get("author_name") or item.get("author_id") or "unknown"
-            lines.append(f"  - comment {index} ({item['comment_id']}):")
-            lines.append(f"    - author: {author}")
-            lines.append(f"    - text: {item['text']}")
-
-    recent_turns = _normalize_recent_turns(state.get("recent_turns"))
-    if recent_turns:
-        lines.append("- recent_turns:")
-        for index, turn in enumerate(recent_turns, start=1):
-            lines.append(f"  - turn {index} ({turn['comment_id']}):")
-            lines.append(f"    - user: {turn['user_comment']}")
-            lines.append(f"    - assistant: {turn['assistant_reply']}")
-
-    recent_tool_runs = _normalize_recent_tool_runs(state.get("recent_tool_runs"))
-    if recent_tool_runs:
-        lines.append("- recent_tool_runs:")
-        for index, run in enumerate(recent_tool_runs, start=1):
-            lines.append(f"  - run {index} ({run['comment_id']}, status={run['status']}): {run['summary']}")
-            steps = run.get("steps") if isinstance(run, dict) else None
-            if isinstance(steps, list) and steps:
-                lines.append("    - steps:")
-                for step in steps:
-                    lines.append(f"      - {step}")
-
-    recent_progress_actions = _normalize_recent_progress_actions(state.get("recent_progress_actions"))
-    if recent_progress_actions:
-        lines.append("- recent_progress_actions:")
-        for index, item in enumerate(recent_progress_actions, start=1):
-            status_comment_id = item.get("status_comment_id") or "(none)"
-            lines.append(
-                "  - progress "
-                f"{index} ({item['request_comment_id']}, status={item['status']}, "
-                f"comment={status_comment_id}): {item['summary']}"
-            )
-            actions = item.get("actions") if isinstance(item, dict) else None
-            if isinstance(actions, list) and actions:
-                lines.append("    - recent_actions:")
-                for action in actions:
-                    lines.append(f"      - {action}")
-
-    return lines
-
-
-def _truncate(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 1)].rstrip() + "…"
-
-
-def _sort_recent_comments(items: list[dict[str, str | None]]) -> list[dict[str, str | None]]:
-    return sorted(
-        items,
-        key=lambda item: (
-            item.get("created_at") or "",
-            item.get("comment_id") or "",
-        ),
-    )
-
-
-def _upsert_participant(
-    participants: list[dict[str, str | None]],
-    *,
-    author_id: str | None,
-    author_name: str | None,
-) -> list[dict[str, str | None]]:
-    if not author_id and not author_name:
-        return participants
-
-    updated: list[dict[str, str | None]] = []
-    matched = False
-    for item in participants:
-        same_id = author_id and item.get("id") == author_id
-        same_name = author_name and item.get("name") == author_name
-        if same_id or same_name:
-            updated.append(
-                {
-                    "id": author_id or item.get("id"),
-                    "name": author_name or item.get("name"),
-                }
-            )
-            matched = True
-        else:
-            updated.append(item)
-
-    if not matched:
-        updated.append({"id": author_id, "name": author_name})
-    return updated
-
-
-def _timestamp_not_older(candidate: str | None, current: str | None) -> bool:
-    if not current:
-        return True
-    if not candidate:
-        return False
-    return candidate >= current
-
-
-def _extract_section_text(text: str, heading: str) -> str:
-    pattern = re.compile(
-        rf"^##\s+{re.escape(heading)}\s*$\n(?P<body>.*?)(?=^##\s+|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    match = pattern.search(text)
-    if not match:
-        return ""
-    body = match.group("body").strip()
-    if not body or body.startswith("- Initialized"):
-        return ""
-    return _truncate(re.sub(r"\s+", " ", body), 500)

@@ -92,6 +92,7 @@ def test_collection_workspace_manager_bootstraps_thread_session_files(tmp_path: 
         max_action_chars=200,
     )
     prompt_context = thread_workspace.load_prompt_context(max_chars=10_000)
-    assert "recent_progress_actions" in prompt_context
+    assert "progress_comment_states" in prompt_context
+    assert "recent_progress_events" in prompt_context
     assert "status-comment-1" in prompt_context
     assert "Done — local workspace actions finished." in prompt_context

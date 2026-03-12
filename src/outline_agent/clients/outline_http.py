@@ -14,4 +14,3 @@ def extract_error_message(response: httpx.Response) -> str:
         if isinstance(message, str) and message:
             return message
     return response.text or response.reason_phrase
-

@@ -201,7 +201,7 @@ class ModelClient:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(url, json=payload, headers=headers)
         except httpx.HTTPError as exc:
-            raise ModelClientError(f"Model request failed: {exc}") from exc
+            raise ModelClientError(_format_httpx_error(exc, url=url, provider=self.profile.provider)) from exc
 
         if response.is_error:
             raise ModelClientError(f"Model API error {response.status_code}: {_extract_error_message(response)}")
@@ -228,3 +228,20 @@ def _extract_error_message(response: httpx.Response) -> str:
                 if isinstance(nested, str) and nested:
                     return nested
     return response.text or response.reason_phrase
+
+
+def _format_httpx_error(exc: httpx.HTTPError, *, url: str, provider: str) -> str:
+    error_type = type(exc).__name__
+    message = str(exc).strip()
+    request = getattr(exc, "request", None)
+    request_summary = ""
+    if request is not None:
+        method = getattr(request, "method", None) or "POST"
+        request_url = getattr(request, "url", None) or url
+        request_summary = f" during {method} {request_url}"
+    elif url:
+        request_summary = f" during POST {url}"
+
+    if message:
+        return f"Model request failed ({provider}/{error_type}){request_summary}: {message}"
+    return f"Model request failed ({provider}/{error_type}){request_summary}"

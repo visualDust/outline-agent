@@ -44,8 +44,7 @@ def build_system_prompt(
     workspace_context = workspace.load_prompt_context(max_chars=max_memory_chars)
     if workspace_context:
         sections.append(
-            "Collection workspace context follows. Treat it as local durable memory.\n\n"
-            f"{workspace_context}"
+            f"Collection workspace context follows. Treat it as local durable memory.\n\n{workspace_context}"
         )
 
     return "\n\n".join(section for section in sections if section).strip()
@@ -94,8 +93,7 @@ def build_user_prompt(
     if document_update_context:
         document_update_section = f"Document update outcome:\n{document_update_context}\n\n"
         if any(
-            status_line in document_update_context
-            for status_line in ("- status: applied", "- status: planned-dry-run")
+            status_line in document_update_context for status_line in ("- status: applied", "- status: planned-dry-run")
         ):
             document_update_reply_instruction = (
                 "Because the document itself was updated, keep the comment reply very short: "
@@ -110,9 +108,7 @@ def build_user_prompt(
         memory_action_section = f"Memory action outcome:\n{memory_action_context}\n\n"
     same_document_comment_section = ""
     if same_document_comment_context:
-        same_document_comment_section = (
-            f"Same-document comment lookup outcome:\n{same_document_comment_context}\n\n"
-        )
+        same_document_comment_section = f"Same-document comment lookup outcome:\n{same_document_comment_context}\n\n"
     related_documents_section = ""
     if related_documents_context:
         related_documents_section = f"Related documents in this collection:\n{related_documents_context}\n\n"
@@ -157,7 +153,9 @@ def build_user_prompt(
         "Reply as the assistant directly. Do not add speaker labels. "
         f"{document_creation_reply_instruction}"
         f"{document_update_reply_instruction}"
-        "If a document creation outcome, document update outcome, tool execution outcome, memory action outcome, or same-document comment lookup outcome is provided, "
+        "If a document creation outcome, document update outcome, tool execution "
+        "outcome, memory action outcome, or same-document comment lookup "
+        "outcome is provided, "
         "acknowledge it accurately and briefly. "
         "If cross-thread handoff context is provided, use it carefully: restate "
         "your understanding, ask a concise clarification if it is ambiguous, and "
@@ -181,11 +179,7 @@ def load_prompt_packs(pack_dir: Path, pack_names: list[str]) -> list[PromptPack]
 def _format_prompt_packs(prompt_packs: list[PromptPack]) -> str | None:
     if not prompt_packs:
         return None
-    blocks = [
-        _format_prompt_section(f"Prompt pack: {pack.name}", pack.text)
-        for pack in prompt_packs
-        if pack.text
-    ]
+    blocks = [_format_prompt_section(f"Prompt pack: {pack.name}", pack.text) for pack in prompt_packs if pack.text]
     return "\n\n".join(blocks) if blocks else None
 
 
@@ -211,9 +205,7 @@ def select_context_comments(
     related = [
         item
         for item in comments
-        if item.id == current_root_id
-        or item.parent_comment_id == current_root_id
-        or item.id == current_comment.id
+        if item.id == current_root_id or item.parent_comment_id == current_root_id or item.id == current_comment.id
     ]
 
     if not any(item.id == current_comment.id for item in related):

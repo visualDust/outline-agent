@@ -39,4 +39,3 @@ def build_multipart_body(
     body.extend(b"\r\n")
     body.extend(b"--" + boundary_bytes + b"--\r\n")
     return bytes(body)
-

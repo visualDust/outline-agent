@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+from ..runtime.tool_runtime import ToolStepResult
+from .processor_prompting import preview, truncate
+from .processor_types import ToolRoundSummary
+
+
+def format_tool_preview(round_summaries: list[ToolRoundSummary]) -> str | None:
+    parts = [f"round {item.round_index}: {item.preview}" for item in round_summaries if item.preview]
+    return " ; ".join(parts) if parts else None
+
+
+def format_tool_context(round_summaries: list[ToolRoundSummary]) -> str | None:
+    sections: list[str] = []
+    for item in round_summaries:
+        if not item.context:
+            continue
+        sections.append(f"Round {item.round_index}:\n{item.context}")
+    return "\n\n".join(sections) if sections else None
+
+
+def describe_tool_result_for_progress(result: ToolStepResult) -> str:
+    if result.tool == "list_dir":
+        target = result.target or "."
+        preview_tail = extract_result_tail(result.summary)
+        if preview_tail:
+            return f"Finished: listed `{target}` → {progress_inline(preview_tail, limit=120)}."
+        return f"Finished: listed `{target}`."
+
+    if result.tool == "read_file":
+        target = result.target or "file"
+        if result.stdout:
+            return f"Finished: read `{target}` → `{progress_inline(result.stdout, limit=100)}`."
+        return f"Finished: read `{target}`."
+
+    if result.tool == "write_file":
+        target = result.target or "file"
+        action = "appended to" if result.summary.startswith("append_file[") else "created or updated"
+        return f"Finished: {action} `{target}`."
+
+    if result.tool == "edit_file":
+        target = result.target or "file"
+        return f"Finished: edited `{target}`."
+
+    if result.tool == "run_shell":
+        command = progress_inline(result.target or "command", limit=80)
+        if result.ok:
+            if result.stdout:
+                return f"Finished: ran `{command}` → output `{progress_inline(result.stdout, limit=100)}`."
+            if result.stderr:
+                return f"Finished: ran `{command}` → stderr `{progress_inline(result.stderr, limit=100)}`."
+            return f"Finished: ran `{command}`."
+
+        details: list[str] = []
+        if result.exit_code is not None:
+            details.append(f"exit {result.exit_code}")
+        if result.stderr:
+            details.append(f"stderr `{progress_inline(result.stderr, limit=80)}`")
+        elif result.stdout:
+            details.append(f"output `{progress_inline(result.stdout, limit=80)}`")
+        detail_text = f" ({'; '.join(details)})" if details else ""
+        return f"Stopped: running `{command}` failed{detail_text}."
+
+    if result.tool == "download_attachment":
+        target = result.target or "file"
+        if result.ok:
+            preview_tail = extract_result_tail(result.summary)
+            if preview_tail:
+                return f"Finished: downloaded attachment to `{target}` → `{progress_inline(preview_tail, limit=100)}`."
+            return f"Finished: downloaded attachment to `{target}`."
+        return f"Stopped: downloading attachment to `{target}` failed."
+
+    if result.tool == "upload_attachment":
+        target = result.target or "file"
+        if result.ok:
+            return f"Finished: uploaded `{target}` back to the Outline document as an attachment."
+        return f"Stopped: uploading `{target}` as an Outline attachment failed."
+
+    return f"Finished: {result.summary}."
+
+
+def describe_round_stop_for_progress(round_index: int, status: str) -> str:
+    if status == "failed":
+        return f"Stopped in round {round_index}: one of the requested actions failed."
+    if status == "blocked":
+        return f"Stopped in round {round_index}: I couldn't safely continue the requested actions."
+    return f"Stopped in round {round_index}: actions ended with status `{status}`."
+
+
+def describe_round_retry_for_progress(round_index: int, status: str) -> str:
+    if status == "failed":
+        return f"Round {round_index} failed, but I'm using the error details to replan the next step."
+    return f"Round {round_index} ended with status `{status}`, and I'm replanning the next step."
+
+
+def progress_comment_headline(
+    status: str,
+    *,
+    round_index: int | None = None,
+    total_rounds: int | None = None,
+) -> str:
+    if status == "thinking":
+        return "Thinking…"
+    if status == "running":
+        if round_index is not None and total_rounds is not None:
+            return f"Working on it — I'm carrying out the requested actions (round {round_index} of {total_rounds})."
+        return "Working on it — I'm carrying out the requested actions."
+    if status == "applied":
+        return "Done — I finished the requested actions."
+    if status == "failed":
+        return "Stopped — one of the requested actions failed."
+    if status == "blocked":
+        return "Stopped — I couldn't safely continue the requested actions."
+    if status == "stopped-max-rounds":
+        return "Paused — I reached the configured limit for action rounds."
+    return f"Status update — actions are now `{status}`."
+
+
+def format_progress_comment_text(
+    *,
+    headline: str,
+    status: str,
+    recent_actions: list[str],
+    max_chars: int = 900,
+) -> str:
+    actions = [preview(item, limit=180) for item in recent_actions if item.strip()]
+    footer = progress_comment_footer(status)
+    while True:
+        lines = [headline]
+        if actions:
+            lines.extend(["", "Recent progress:"])
+            lines.extend(f"  - {item}" for item in actions)
+        if footer:
+            lines.extend(["", footer])
+        text = "\n".join(lines).strip()
+        if len(text) <= max_chars or not actions:
+            return truncate(text, max_chars)
+        actions = actions[1:]
+
+
+def progress_comment_footer(status: str) -> str:
+    return ""
+
+
+def extract_result_tail(summary: str) -> str | None:
+    if " -> " not in summary:
+        return None
+    _, _, tail = summary.partition(" -> ")
+    return tail.strip() or None
+
+
+def progress_inline(text: str, limit: int) -> str:
+    compact = preview(text, limit=limit).replace("`", "'")
+    return compact.strip()

@@ -175,9 +175,7 @@ def test_tool_runtime_uploads_attachment_to_outline_document(tmp_path: Path) -> 
     assert report.step_results[0].attachment is not None
     assert report.step_results[0].attachment.url == "https://outline.example/api/attachments.redirect?id=attachment-1"
     assert report.step_results[0].attachment.file_hash is not None
-    assert outline_client.uploads == [
-        {"document_id": "doc-1", "file_path": str(artifact)}
-    ]
+    assert outline_client.uploads == [{"document_id": "doc-1", "file_path": str(artifact)}]
 
 
 def test_tool_runtime_converts_unexpected_upload_exception_into_failed_report(tmp_path: Path) -> None:
@@ -230,7 +228,10 @@ def test_tool_runtime_downloads_attachment_into_work_dir(tmp_path: Path) -> None
     report = asyncio.run(runtime.execute_plan(work_dir, plan, document_id="doc-1"))
 
     assert report.status == "applied"
-    assert report.preview == "download_attachment[downloads/report.pdf] <- /api/attachments.redirect?id=attachment-1 -> 16 bytes"
+    assert (
+        report.preview == "download_attachment[downloads/report.pdf] <- "
+        "/api/attachments.redirect?id=attachment-1 -> 16 bytes"
+    )
     assert (work_dir / "downloads" / "report.pdf").read_bytes() == b"downloaded bytes"
     assert outline_client.downloads == [
         {

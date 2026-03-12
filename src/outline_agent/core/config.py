@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from functools import lru_cache
 import os
+from functools import lru_cache
 from pathlib import Path
-from typing import Any
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import AliasChoices, Field, ValidationInfo, field_validator, model_validator
@@ -37,7 +36,6 @@ outline:
   api_base_url: ""
   api_key: ""
   webhook_signing_secret: ""
-  agent_user_id: ""
 
 trigger:
   mode: mention
@@ -73,6 +71,11 @@ features:
 
 runtime:
   dry_run: false
+  # Planning loop limits: up to 10 planning/execution rounds.
+  # The planner may propose up to 6 steps, but execution is intentionally chunked in small batches.
+  tool_execution_max_rounds: 10
+  tool_execution_max_steps: 6
+  tool_execution_chunk_size: 2
   # Relative runtime paths resolve from this config file's directory.
   # workspace_root: data/agents
 
@@ -159,7 +162,6 @@ _GROUPED_CONFIG_FIELDS = {
         "api_base_url": "outline_api_base_url",
         "api_key": "outline_api_key",
         "webhook_signing_secret": "outline_webhook_signing_secret",
-        "agent_user_id": "outline_agent_user_id",
         "timeout_seconds": "outline_timeout_seconds",
     },
     "trigger": {
@@ -201,6 +203,9 @@ _GROUPED_CONFIG_FIELDS = {
         "webhook_log_dir": "webhook_log_dir",
         "dedupe_store_path": "dedupe_store_path",
         "dry_run": "dry_run",
+        "tool_execution_max_rounds": "tool_execution_max_rounds",
+        "tool_execution_max_steps": "tool_execution_max_steps",
+        "tool_execution_chunk_size": "tool_execution_chunk_size",
     },
     "logging": {
         "level": "log_level",
@@ -243,7 +248,6 @@ class AppSettings(BaseSettings):
     outline_api_base_url: str = ""
     outline_api_key: str | None = None
     outline_webhook_signing_secret: str | None = None
-    outline_agent_user_id: str | None = None
     runtime_outline_user_id: str | None = None
     runtime_outline_user_name: str | None = None
     outline_timeout_seconds: float = 30.0
@@ -269,8 +273,9 @@ class AppSettings(BaseSettings):
     document_update_model_ref: str | None = None
     tool_use_enabled: bool = True
     tool_model_ref: str | None = None
-    tool_execution_max_steps: int = 4
-    tool_execution_max_rounds: int = 6
+    tool_execution_max_steps: int = 6
+    tool_execution_chunk_size: int = 2
+    tool_execution_max_rounds: int = 10
     tool_file_max_chars: int = 12000
     tool_list_dir_max_entries: int = 40
     tool_shell_timeout_seconds: float = 120.0
@@ -284,7 +289,7 @@ class AppSettings(BaseSettings):
     document_update_max_context_sections: int = 4
     document_update_section_max_chars: int = 1800
     document_update_outline_max_sections: int = 40
-    model_timeout_seconds: float = 60.0
+    model_timeout_seconds: float = 180.0
     max_output_tokens: int = 800
     max_prompt_chars: int = 8000
     max_document_chars: int = 5000

@@ -75,7 +75,9 @@ def prepare_comment_chunks(text: str, max_chars: int = OUTLINE_COMMENT_MAX_CHARS
 
         adjusted_chunks = split_comment_text(normalized, max_chars=available_chars)
         if len(adjusted_chunks) == total_chunks:
-            return [f"{_chunk_marker(index, total_chunks)}{chunk}" for index, chunk in enumerate(adjusted_chunks, start=1)]
+            return [
+                f"{_chunk_marker(index, total_chunks)}{chunk}" for index, chunk in enumerate(adjusted_chunks, start=1)
+            ]
         total_chunks = len(adjusted_chunks)
 
 
@@ -309,9 +311,7 @@ def _split_large_markdown_block(block: str, *, max_chars: int) -> list[str]:
     lines = block.splitlines()
     tokens = MARKDOWN_PARSER.parse(block)
     top_level_tokens = [
-        token
-        for token in tokens
-        if token.level == 0 and token.map is not None and not token.type.endswith("_close")
+        token for token in tokens if token.level == 0 and token.map is not None and not token.type.endswith("_close")
     ]
     if not top_level_tokens:
         return _split_comment_text_lines(block, max_chars=max_chars)
@@ -641,10 +641,7 @@ def _parse_markdown_inline_tokens(tokens: list[Any]) -> list[dict[str, Any]]:
 
         if token_type == "image":
             alt_text = (
-                getattr(token, "content", "")
-                or _token_attr_get(token, "alt")
-                or _token_attr_get(token, "src")
-                or ""
+                getattr(token, "content", "") or _token_attr_get(token, "alt") or _token_attr_get(token, "src") or ""
             )
             _append_text_node(content, alt_text, marks)
             continue

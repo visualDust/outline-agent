@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from ..clients.outline_client import OutlineClient, OutlineClientError, OutlineComment, OutlineDocument
@@ -181,9 +181,13 @@ class SameDocumentCommentManager:
             participants = _collect_participants(thread_comments, local_entry)
             summary = _as_optional_str(local_entry.get("session_summary"))
             recent_preview = _as_optional_str(local_entry.get("recent_preview"))
-            preview = summary or recent_preview or _build_thread_preview(
-                thread_comments,
-                excerpt_chars=self.settings.same_document_comment_lookup_excerpt_chars,
+            preview = (
+                summary
+                or recent_preview
+                or _build_thread_preview(
+                    thread_comments,
+                    excerpt_chars=self.settings.same_document_comment_lookup_excerpt_chars,
+                )
             )
             search_parts = [preview or ""]
             if summary:
@@ -220,7 +224,10 @@ class SameDocumentCommentManager:
         alternatives: list[dict[str, Any]],
     ) -> str:
         lines = [
-            "I inspected other comment threads in this same document because the user explicitly asked about earlier or other comments.",
+            (
+                "I inspected other comment threads in this same document because "
+                "the user explicitly asked about earlier or other comments."
+            ),
             "Most relevant matching thread:",
             f"- thread_id: {selected.get('thread_id')}",
             f"- participants: {_format_participants(selected.get('participants'))}",
@@ -243,7 +250,10 @@ class SameDocumentCommentManager:
             for item in recent_comments[-self.settings.same_document_comment_lookup_comment_limit :]:
                 if not isinstance(item, OutlineComment):
                     continue
-                body = _truncate(extract_prompt_text(item.data), self.settings.same_document_comment_lookup_excerpt_chars)
+                body = _truncate(
+                    extract_prompt_text(item.data),
+                    self.settings.same_document_comment_lookup_excerpt_chars,
+                )
                 if not body:
                     continue
                 author = item.created_by_name or item.created_by_id or "unknown"
@@ -262,13 +272,18 @@ class SameDocumentCommentManager:
                 )
 
         lines.append(
-            "Instruction: use this retrieved same-document comment context when it helps answer the user, but if their reference could still mean a different thread, say so briefly instead of overclaiming."
+            "Instruction: use this retrieved same-document comment context when it "
+            "helps answer the user, but if their reference could still mean a "
+            "different thread, say so briefly instead of overclaiming."
         )
         return "\n".join(lines)
 
     def _format_ambiguous_prompt_section(self, alternatives: list[dict[str, Any]]) -> str:
         lines = [
-            "I inspected other comment threads in this same document because the user explicitly asked about earlier or other comments.",
+            (
+                "I inspected other comment threads in this same document because "
+                "the user explicitly asked about earlier or other comments."
+            ),
             "Multiple candidate same-document threads may match:",
         ]
         for index, item in enumerate(alternatives, start=1):
@@ -281,7 +296,9 @@ class SameDocumentCommentManager:
             )
 
         lines.append(
-            "Instruction: explain that you can inspect earlier same-document comments, briefly summarize these candidates, and ask the user which thread or topic they mean before relying on one of them."
+            "Instruction: explain that you can inspect earlier same-document "
+            "comments, briefly summarize these candidates, and ask the user "
+            "which thread or topic they mean before relying on one of them."
         )
         return "\n".join(lines)
 

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
 import pytest
 
-from outline_agent.clients.model_client import ModelClient, ModelInputImage
+from outline_agent.clients.model_client import ModelClient, ModelClientError, ModelInputImage
 from outline_agent.models.model_profiles import ResolvedModelProfile
 
 
@@ -65,3 +66,40 @@ def test_model_client_openai_responses_sends_input_images(
     image_item = user_message["content"][1]
     assert image_item["type"] == "input_image"
     assert image_item["image_url"].startswith("data:image/png;base64,")
+
+
+def test_model_client_httpx_timeout_error_includes_provider_type_and_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = ResolvedModelProfile(
+        alias="demo",
+        provider="openai-responses",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="gpt-4.1-mini",
+    )
+    client = ModelClient(profile=profile, timeout=5, max_output_tokens=123)
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, json=None, headers=None):
+            del json, headers
+            request = httpx.Request("POST", url)
+            raise httpx.ReadTimeout("", request=request)
+
+    monkeypatch.setattr("outline_agent.clients.model_client.httpx.AsyncClient", FakeAsyncClient)
+
+    with pytest.raises(ModelClientError) as exc_info:
+        asyncio.run(client.generate_reply("You are helpful.", "Hello"))
+
+    assert str(exc_info.value) == (
+        "Model request failed (openai-responses/ReadTimeout) during POST https://example.test/v1/responses"
+    )

@@ -33,4 +33,3 @@ def parse_document_item(item: dict[str, Any]) -> OutlineDocument | None:
         url=as_optional_str(item.get("url")),
         text=as_optional_str(item.get("text")) or as_optional_str(item.get("excerpt")),
     )
-

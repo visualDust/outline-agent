@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+_ATTACHMENT_URL_KEYS = {"src", "href", "url"}
+
 
 @dataclass(frozen=True)
 class MentionRef:
@@ -15,6 +17,13 @@ class MentionRef:
 class ImageRef:
     src: str
     alt: str | None = None
+
+
+@dataclass(frozen=True)
+class AttachmentRef:
+    source_url: str
+    kind: str
+    label: str | None = None
 
 
 def extract_plain_text(value: Any) -> str:
@@ -36,6 +45,20 @@ def extract_image_refs(value: Any) -> list[ImageRef]:
     images: list[ImageRef] = []
     _collect_images(value, images)
     return images
+
+
+def extract_attachment_refs(value: Any) -> list[AttachmentRef]:
+    refs: list[AttachmentRef] = []
+    _collect_attachment_refs(value, refs)
+    deduped: list[AttachmentRef] = []
+    seen: set[tuple[str, str]] = set()
+    for ref in refs:
+        key = (ref.source_url, ref.kind)
+        if key in seen:
+            continue
+        deduped.append(ref)
+        seen.add(key)
+    return deduped
 
 
 def extract_prompt_text(value: Any) -> str:
@@ -163,3 +186,54 @@ def _collapse_blank_lines(lines: list[str]) -> list[str]:
 
 def _as_optional_str(value: Any) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
+
+
+def _collect_attachment_refs(node: Any, refs: list[AttachmentRef]) -> None:
+    if node is None:
+        return
+
+    if isinstance(node, list):
+        for item in node:
+            _collect_attachment_refs(item, refs)
+        return
+
+    if not isinstance(node, dict):
+        return
+
+    node_type = node.get("type")
+    attrs = node.get("attrs") if isinstance(node.get("attrs"), dict) else {}
+    kind = "image" if node_type == "image" else "attachment"
+    label = _as_optional_str(attrs.get("alt") or attrs.get("title") or attrs.get("name") or attrs.get("filename"))
+
+    for key in _ATTACHMENT_URL_KEYS:
+        value = attrs.get(key) if key in attrs else node.get(key)
+        source_url = _as_optional_attachment_url(value)
+        if source_url:
+            refs.append(AttachmentRef(source_url=source_url, kind=kind, label=label))
+
+    marks = node.get("marks")
+    if isinstance(marks, list):
+        for mark in marks:
+            if not isinstance(mark, dict):
+                continue
+            mark_attrs = mark.get("attrs") if isinstance(mark.get("attrs"), dict) else {}
+            for key in _ATTACHMENT_URL_KEYS:
+                source_url = _as_optional_attachment_url(mark_attrs.get(key))
+                if source_url:
+                    refs.append(AttachmentRef(source_url=source_url, kind="attachment", label=label))
+
+    children = node.get("content")
+    if isinstance(children, list):
+        for child in children:
+            _collect_attachment_refs(child, refs)
+
+
+def _as_optional_attachment_url(value: Any) -> str | None:
+    source = _as_optional_str(value)
+    if not source or "attachments.redirect?id=" not in source:
+        return None
+    if source.startswith("attachments.redirect?"):
+        return "/api/" + source
+    if source.startswith("/attachments.redirect?"):
+        return "/api" + source
+    return source

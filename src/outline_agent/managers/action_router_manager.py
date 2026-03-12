@@ -3,43 +3,39 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from ..clients.model_client import ModelClient
-from ..clients.outline_client import OutlineCollection, OutlineDocument
+from ..clients.outline_models import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
 from ..state.workspace import ThreadWorkspace
 from ..utils.json_utils import JsonExtractionError, extract_json_object
 
-ACTION_ROUTER_SYSTEM_PROMPT = """You decide which agent subsystems should be invoked for a single Outline comment.
-
-Return strict JSON only with this schema:
-{
-  "document_creation": false,
-  "document_update": false,
-  "tool_use": false,
-  "memory_action": false,
-  "cross_thread_handoff": false,
-  "same_document_comment_lookup": false,
-  "reason": "short explanation"
-}
-
-Rules:
-- `document_creation = true` only when the user is asking to create a separate new Outline document.
-- `document_update = true` only when the user is asking to directly write, edit, replace, add, or transform the current Outline document.
-- `tool_use = true` only when local workspace/file/shell/artifact work is needed before replying.
-- `memory_action = true` only when the user explicitly asks to remember, forget, correct, or manage collection memory.
-- `cross_thread_handoff = true` only when the user appears to refer to a different discussion thread in this same document.
-- `same_document_comment_lookup = true` only when the user asks to inspect, summarize, search, or compare other comments/threads in this same document.
-- If `document_creation = true`, set `document_update = false`.
-- If `cross_thread_handoff = true`, set `same_document_comment_lookup = false`.
-- Multiple flags may be true at once when appropriate, except for the handoff/lookup conflict above.
-- If none are clearly needed, set all flags to false.
-- Do not use these flags merely because a capability exists; only enable a flag when the user intent supports it.
-"""
+ACTION_ROUTER_SYSTEM_PROMPT = (
+    "You decide which special routing subsystems should be invoked for a single "
+    "Outline comment.\n\n"
+    "Main document creation, document update, and local tool work are handled "
+    "elsewhere by a unified tool planner.\n"
+    "This router is only for special control paths.\n\n"
+    "Return strict JSON only with this schema:\n"
+    "{\n"
+    '  "memory_action": false,\n'
+    '  "cross_thread_handoff": false,\n'
+    '  "same_document_comment_lookup": false,\n'
+    '  "reason": "short explanation"\n'
+    "}\n\n"
+    "Rules:\n"
+    "- `memory_action = true` only when the user explicitly asks to remember, "
+    "forget, correct, or manage collection memory\n"
+    "- `cross_thread_handoff = true` only when the user appears to refer to a "
+    "different discussion thread in this same document\n"
+    "- `same_document_comment_lookup = true` only when the user asks to inspect, "
+    "summarize, search, or compare other comments/threads in this same "
+    "document\n"
+    "- If `cross_thread_handoff = true`, set "
+    "`same_document_comment_lookup = false`\n"
+    "- If none are clearly needed, set all flags to false\n"
+)
 
 
 class ActionRoutingDecision(BaseModel):
-    document_creation: bool = False
-    document_update: bool = False
-    tool_use: bool = False
     memory_action: bool = False
     cross_thread_handoff: bool = False
     same_document_comment_lookup: bool = False
@@ -76,22 +72,9 @@ class ActionRouterManager:
         decision = ActionRoutingDecision.model_validate(payload)
         if decision.cross_thread_handoff:
             return ActionRoutingDecision(
-                document_creation=decision.document_creation,
-                document_update=decision.document_update,
-                tool_use=decision.tool_use,
                 memory_action=decision.memory_action,
                 cross_thread_handoff=True,
                 same_document_comment_lookup=False,
-                reason=decision.reason,
-            )
-        if decision.document_creation:
-            return ActionRoutingDecision(
-                document_creation=True,
-                document_update=False,
-                tool_use=decision.tool_use,
-                memory_action=decision.memory_action,
-                cross_thread_handoff=decision.cross_thread_handoff,
-                same_document_comment_lookup=decision.same_document_comment_lookup,
                 reason=decision.reason,
             )
         return decision

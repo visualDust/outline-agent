@@ -94,8 +94,6 @@ class ModelProfileResolver:
 
         if explicit_model:
             if allowed and explicit_model not in allowed:
-                raise ModelProfileError(
-                    f"Model {explicit_model!r} is not listed under profile {alias!r}"
-                )
+                raise ModelProfileError(f"Model {explicit_model!r} is not listed under profile {alias!r}")
             return explicit_model
         return default_model

@@ -15,13 +15,21 @@ from .outline_comments import (
     OUTLINE_COMMENT_MAX_CHARS,
     build_comment_data,
     build_markdown_comment_data,
-    is_comment_too_long_error as _is_comment_too_long_error,
     normalize_comment_markdown,
     prepare_comment_chunks,
-    should_retry_comment_create_as_data as _should_retry_comment_create_as_data,
-    should_retry_comment_create_as_plain_data as _should_retry_comment_create_as_plain_data,
-    should_retry_comment_update_as_text as _should_retry_comment_update_as_text,
     split_comment_text,
+)
+from .outline_comments import (
+    is_comment_too_long_error as _is_comment_too_long_error,
+)
+from .outline_comments import (
+    should_retry_comment_create_as_data as _should_retry_comment_create_as_data,
+)
+from .outline_comments import (
+    should_retry_comment_create_as_plain_data as _should_retry_comment_create_as_plain_data,
+)
+from .outline_comments import (
+    should_retry_comment_update_as_text as _should_retry_comment_update_as_text,
 )
 from .outline_documents import extract_document_items as _extract_document_items
 from .outline_documents import parse_document_item as _parse_document_item

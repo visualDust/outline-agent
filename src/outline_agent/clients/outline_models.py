@@ -37,4 +37,3 @@ class OutlineUser:
     id: str
     name: str | None
     email: str | None
-
