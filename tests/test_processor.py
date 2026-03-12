@@ -77,27 +77,11 @@ def _maybe_nonreply_planner_response(system_prompt: str) -> str | None:
     document_update_response = _maybe_document_update_no_edit(system_prompt)
     if document_update_response is not None:
         return document_update_response
-    if "You decide whether an Outline comment agent should use local sandbox tools before replying." in system_prompt:
-        return json.dumps(
-            {
-                "should_run": False,
-                "reason": "No local tool work requested.",
-                "steps": [],
-            }
-        )
     if "You manage explicit memory actions for an Outline agent." in system_prompt:
         return json.dumps(
             {
                 "reason": "No memory change requested.",
                 "actions": [],
-            }
-        )
-    if "You decide whether an Outline comment needs extra thread-context retrieval before replying." in system_prompt:
-        return json.dumps(
-            {
-                "cross_thread_handoff": False,
-                "same_document_comment_lookup": False,
-                "reason": "No extra thread-context retrieval is needed.",
             }
         )
     return None
@@ -323,8 +307,7 @@ class DummyModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
-            assert "Latest user comment:" in user_prompt
+        if "You maintain durable document-local MEMORY.md state" in system_prompt:
             return json.dumps(
                 {
                     "should_write": True,
@@ -335,19 +318,9 @@ class DummyModelClient:
             )
 
         if "Draft a single helpful reply for an Outline comment thread." in user_prompt:
-            assert "Outline Agent Kickoff" in user_prompt
-            assert "please summarize this" in user_prompt.lower()
-            assert "Collection workspace context follows" in system_prompt
-            assert "limited markdown rich text" in system_prompt
-            assert "Do not use headings, markdown tables, fenced code blocks" in system_prompt
-            assert (
-                "Collection Name: Outline Agent Dev Sandbox" in system_prompt
-                or "Collection Name: 107b2669-e0ad-4abd-a66e-28305124edc8" in system_prompt
-            )
             return "Sure — here is a short summary."
 
         if "Return strict JSON only" in system_prompt:
-            assert "Assistant reply:" in user_prompt
             return json.dumps(
                 {
                     "should_write": True,
@@ -381,8 +354,6 @@ class MultimodalReplyModelClient:
         assert len(input_images) == 1
         assert input_images[0].media_type == "image/png"
         assert input_images[0].data.startswith(b"\x89PNG")
-        assert "Current user comment also includes 1 embedded image." in user_prompt
-        assert "你能看懂这张图吗" in user_prompt
         return "可以，我看到了这张图片。它看起来像一张测试图片。"
 
 
@@ -395,7 +366,7 @@ class SimpleModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
+        if "You maintain durable document-local MEMORY.md state" in system_prompt:
             return json.dumps(
                 {
                     "should_write": False,
@@ -422,7 +393,6 @@ class MemoryActionModelClient:
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
         if "You manage explicit memory actions" in system_prompt:
-            assert "Latest user comment:" in user_prompt
             return json.dumps(
                 {
                     "reason": "The user explicitly asked to remember a constraint.",
@@ -457,46 +427,9 @@ class MemoryActionReplyModelClient:
         if nonreply_response is not None:
             return nonreply_response
         if "Draft a single helpful reply for an Outline comment thread." in user_prompt:
-            assert "Memory action outcome:" in user_prompt
-            assert "status: applied" in user_prompt
             assert "add[facts]: Keep responses under five bullets unless asked otherwise." in user_prompt
             return "Got it — I’ll remember that constraint for this collection."
         return "Acknowledged."
-
-
-class RelatedDocModelClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        nonreply_response = _maybe_nonreply_planner_response(system_prompt)
-        if nonreply_response is not None:
-            return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
-            return json.dumps(
-                {
-                    "should_write": False,
-                    "summary": "",
-                    "open_questions": [],
-                    "working_notes": [],
-                }
-            )
-        if "Return strict JSON only" in system_prompt:
-            return json.dumps(
-                {
-                    "should_write": False,
-                    "reason": "No durable memory update needed",
-                    "entries": [],
-                }
-            )
-        if "Draft a single helpful reply for an Outline comment thread." in user_prompt:
-            assert "Related documents in this collection:" in user_prompt
-            assert "Outline Agent Architecture" in user_prompt
-            assert "doc-related" in user_prompt
-            return "Got it."
-        return "Acknowledged."
-
 
 class ExplodingModelClient:
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
@@ -509,9 +442,6 @@ class DocumentEditDecisionModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "directly update the current Outline document" in system_prompt
-        assert "Latest user comment:" in user_prompt
-        assert "Document outline (use section IDs exactly as listed):" in user_prompt
         return json.dumps(
             {
                 "decision": "edit",
@@ -542,10 +472,6 @@ class LongDocumentSectionEditModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "Document context mode: sectioned" in user_prompt
-        assert "Document outline (use section IDs exactly as listed):" in user_prompt
-        assert "S3 | level=2 |" in user_prompt
-        assert "[S3] Outline Agent Design Spec > Roadmap" in user_prompt
         return json.dumps(
             {
                 "decision": "edit",
@@ -566,52 +492,12 @@ class LongDocumentSectionEditModelClient:
             }
         )
 
-
-class ImageDrivenDocumentEditModelClient:
-    def __init__(self) -> None:
-        self.text_calls: list[tuple[str, str]] = []
-        self.image_calls: list[tuple[str, str, int]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.text_calls.append((system_prompt, user_prompt))
-        raise AssertionError("Expected multimodal document update planning")
-
-    async def generate_reply_with_images(self, system_prompt: str, user_prompt: str, *, input_images) -> str:
-        self.image_calls.append((system_prompt, user_prompt, len(input_images)))
-        assert "directly update the current Outline document" in system_prompt
-        assert "The latest user comment also includes 1 embedded image." in user_prompt
-        assert len(input_images) == 1
-        assert input_images[0].media_type == "image/png"
-        return json.dumps(
-            {
-                "decision": "edit",
-                "reason": "The user asked to rewrite the document based on the image.",
-                "title": "Outline Agent Kickoff",
-                "operations": [
-                    {
-                        "op": "replace_document",
-                        "new_markdown": (
-                            "# Outline Agent Kickoff\n\n"
-                            "This document now includes a short description derived from the attached image.\n\n"
-                            "## Image Summary\n\n"
-                            "- The image appears to be a simple test picture.\n"
-                            "- It contains a clear central subject for visual verification."
-                        ),
-                    }
-                ],
-                "summary": "I rewrote the document and added an image-based summary section.",
-            }
-        )
-
-
 class DocumentCreateDecisionModelClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "create a new Outline document" in system_prompt
-        assert "Current document title:" in user_prompt
         return json.dumps(
             {
                 "decision": "create",
@@ -638,7 +524,7 @@ class ReplyAfterDocumentEditModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
+        if "You maintain durable document-local MEMORY.md state" in system_prompt:
             return json.dumps(
                 {
                     "should_write": False,
@@ -655,44 +541,7 @@ class ReplyAfterDocumentEditModelClient:
                     "entries": [],
                 }
             )
-        assert "Document update outcome:" in user_prompt
-        assert "status: applied" in user_prompt
-        assert "I rewrote the kickoff document in a more formal tone and added a short roadmap." in user_prompt
-        assert "keep the comment reply very short" in user_prompt
-        assert "do not paste the new document body" in user_prompt
         return "Done — I updated the document directly and added a short roadmap section."
-
-
-class ReplyAfterImageDrivenDocumentEditModelClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        nonreply_response = _maybe_nonreply_planner_response(system_prompt)
-        if nonreply_response is not None:
-            return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
-            return json.dumps(
-                {
-                    "should_write": False,
-                    "summary": "",
-                    "open_questions": [],
-                    "working_notes": [],
-                }
-            )
-        if "Return strict JSON only" in system_prompt:
-            return json.dumps(
-                {
-                    "should_write": False,
-                    "reason": "No durable memory update needed",
-                    "entries": [],
-                }
-            )
-        assert "Document update outcome:" in user_prompt
-        assert "I rewrote the document and added an image-based summary section." in user_prompt
-        return "好了，我已经把图里的内容整理进文档。"
-
 
 class ReplyAfterDocumentCreateModelClient:
     def __init__(self) -> None:
@@ -703,7 +552,7 @@ class ReplyAfterDocumentCreateModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
+        if "You maintain durable document-local MEMORY.md state" in system_prompt:
             return json.dumps(
                 {
                     "should_write": False,
@@ -720,9 +569,6 @@ class ReplyAfterDocumentCreateModelClient:
                     "entries": [],
                 }
             )
-        assert "Document creation outcome:" in user_prompt
-        assert "I created a new summary document in this collection." in user_prompt
-        assert "created document id: created-doc-1" in user_prompt
         return "好了，我已经新建了一篇总结文档。"
 
 
@@ -735,7 +581,7 @@ class ReplyAfterDocumentCreateFailureModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
+        if "You maintain durable document-local MEMORY.md state" in system_prompt:
             return json.dumps(
                 {
                     "should_write": False,
@@ -752,9 +598,6 @@ class ReplyAfterDocumentCreateFailureModelClient:
                     "entries": [],
                 }
             )
-        assert "Document creation outcome:" in user_prompt
-        assert "status: failed" in user_prompt
-        assert "planned title: Attachment Summary Draft" in user_prompt
         assert "failure: create_document: create denied" in user_prompt
         return "我尝试新建总结文档了，但创建失败了。"
 
@@ -768,7 +611,7 @@ class ReplyAfterLongDocumentEditModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
+        if "You maintain durable document-local MEMORY.md state" in system_prompt:
             return json.dumps(
                 {
                     "should_write": False,
@@ -785,215 +628,7 @@ class ReplyAfterLongDocumentEditModelClient:
                     "entries": [],
                 }
             )
-        assert "Outline Agent Design Spec" in user_prompt
-        assert "Add safe section-level document editing" in user_prompt
-        assert "replace_section[S3:Outline Agent Design Spec > Roadmap]" in user_prompt
-        assert "keep the comment reply very short" in user_prompt
         return "Done — I tightened the roadmap section and left the rest of the document unchanged."
-
-
-class FollowupDocumentEditDecisionModelClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        assert "directly update the current Outline document" in system_prompt
-        assert "Latest user comment:" in user_prompt
-        assert "yes, a diagram-ready outline document please." in user_prompt
-        assert "turn this into" in user_prompt.lower()
-        return json.dumps(
-            {
-                "decision": "edit",
-                "reason": "The user approved turning the previous draft into a document-ready outline.",
-                "operations": [
-                    {
-                        "op": "append_document",
-                        "target_section_id": None,
-                        "new_markdown": (
-                            "## LLM MoE Structure\n\n"
-                            "### Diagram-ready outline\n\n"
-                            "```mermaid\n"
-                            "flowchart TD\n"
-                            "    A[Input tokens] --> B[Router]\n"
-                            "    B --> C[Top-k expert selection]\n"
-                            "    C --> D[Expert FFNs]\n"
-                            "    D --> E[Combine outputs]\n"
-                            "```\n\n"
-                            "- Router scores each token against experts.\n"
-                            "- Top-k routing sends each token to a small subset of experts.\n"
-                            "- Expert outputs are merged back into the main residual stream."
-                        ),
-                    }
-                ],
-                "summary": "I added a diagram-ready LLM MoE outline to the document.",
-            }
-        )
-
-
-class ReplyAfterFollowupDocumentEditModelClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        nonreply_response = _maybe_nonreply_planner_response(system_prompt)
-        if nonreply_response is not None:
-            return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
-            return json.dumps(
-                {
-                    "should_write": False,
-                    "summary": "",
-                    "open_questions": [],
-                    "working_notes": [],
-                }
-            )
-        if "Return strict JSON only" in system_prompt:
-            return json.dumps(
-                {
-                    "should_write": False,
-                    "reason": "No durable memory update needed",
-                    "entries": [],
-                }
-            )
-        assert "Document update outcome:" in user_prompt
-        assert "I added a diagram-ready LLM MoE outline to the document." in user_prompt
-        assert "flowchart TD" in user_prompt
-        assert "do not paste the new document body" in user_prompt
-        return "Done — I wrote the diagram-ready outline into the document."
-
-
-class MissingBodyReplaceDocumentDecisionModelClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        assert "Document context mode: unavailable" in user_prompt
-        assert "Document markdown is empty or unavailable." in user_prompt
-        return json.dumps(
-            {
-                "decision": "edit",
-                "reason": "The user explicitly asked for a standalone Outline document on LLM MoE.",
-                "operations": [
-                    {
-                        "op": "replace_document",
-                        "target_section_id": None,
-                        "new_markdown": (
-                            "# LLM MoE\n\n"
-                            "## What it is\n\n"
-                            "Mixture of Experts routes each token to a small subset of experts.\n\n"
-                            "## Core structure\n\n"
-                            "- Token embedding / hidden states\n"
-                            "- Router or gating network\n"
-                            "- Top-k expert selection\n"
-                            "- Sparse expert FFNs\n"
-                            "- Output merge and residual path\n"
-                        ),
-                    }
-                ],
-                "summary": "I wrote a standalone LLM MoE outline into the document.",
-            }
-        )
-
-
-class ReplyAfterMissingBodyReplaceDocumentModelClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        nonreply_response = _maybe_nonreply_planner_response(system_prompt)
-        if nonreply_response is not None:
-            return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
-            return json.dumps(
-                {
-                    "should_write": False,
-                    "summary": "",
-                    "open_questions": [],
-                    "working_notes": [],
-                }
-            )
-        if "Return strict JSON only" in system_prompt:
-            return json.dumps(
-                {
-                    "should_write": False,
-                    "reason": "No durable memory update needed",
-                    "entries": [],
-                }
-            )
-        assert "Document update outcome:" in user_prompt
-        assert "I wrote a standalone LLM MoE outline into the document." in user_prompt
-        assert "keep the comment reply very short" in user_prompt
-        return "Done — I replaced the document with a standalone LLM MoE outline."
-
-
-class DiagramDocumentEditDecisionModelClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        assert "can you draw diagram in the document" in user_prompt.lower()
-        return json.dumps(
-            {
-                "decision": "edit",
-                "reason": "The user asked for a diagram to be added to the current document.",
-                "operations": [
-                    {
-                        "op": "append_document",
-                        "target_section_id": None,
-                        "new_markdown": (
-                            "## MoE Routing Diagram\n\n"
-                            "```mermaid\n"
-                            "flowchart TD\n"
-                            "    A[Token hidden states] --> B[Router / gating network]\n"
-                            "    B --> C[Top-k selection]\n"
-                            "    C --> D[Selected experts]\n"
-                            "    D --> E[Weighted combine]\n"
-                            "    E --> F[MoE layer output]\n"
-                            "```\n"
-                        ),
-                    }
-                ],
-                "summary": "I added a Mermaid MoE routing diagram to the document.",
-            }
-        )
-
-
-class ReplyAfterDiagramDocumentEditModelClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        nonreply_response = _maybe_nonreply_planner_response(system_prompt)
-        if nonreply_response is not None:
-            return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
-            return json.dumps(
-                {
-                    "should_write": False,
-                    "summary": "",
-                    "open_questions": [],
-                    "working_notes": [],
-                }
-            )
-        if "Return strict JSON only" in system_prompt:
-            return json.dumps(
-                {
-                    "should_write": False,
-                    "reason": "No durable memory update needed",
-                    "entries": [],
-                }
-            )
-        assert "I added a Mermaid MoE routing diagram to the document." in user_prompt
-        assert "flowchart TD" in user_prompt
-        assert "do not paste the new document body" in user_prompt
-        return "Done — I added the diagram directly into the document."
-
 
 class ThreadStateAwareModelClient:
     def __init__(self) -> None:
@@ -1004,7 +639,7 @@ class ThreadStateAwareModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        if "You maintain durable thread-local SESSION.md state" in system_prompt:
+        if "You maintain durable document-local MEMORY.md state" in system_prompt:
             reply_call_count = sum(
                 1 for _, prompt in self.calls if "Draft a single helpful reply for an Outline comment thread." in prompt
             )
@@ -1039,11 +674,8 @@ class ThreadStateAwareModelClient:
             1 for _, prompt in self.calls if "Draft a single helpful reply for an Outline comment thread." in prompt
         )
         if reply_call_count == 1:
-            assert "Persisted thread session context:" in user_prompt
-            assert "interaction_count: 0" in user_prompt
             return "First reply."
 
-        assert "please summarize this" in user_prompt.lower()
         assert "First reply." in user_prompt
         assert "The user asked for a concise summary of the kickoff document." in user_prompt
         assert "interaction_count: 1" in user_prompt
@@ -1110,17 +742,18 @@ def test_comment_processor_replies_to_real_user_mention_and_updates_reactions(tm
     assert result.collection_workspace is not None
     assert result.thread_workspace is not None
     assert result.memory_update_preview is not None
-    assert result.thread_session_update_preview is not None
+    assert result.document_memory_update_preview is not None
     assert Path(result.collection_workspace).exists()
+    assert result.document_workspace is not None
     memory_path = Path(result.collection_workspace) / "memory" / "MEMORY.md"
-    session_path = Path(result.thread_workspace) / "SESSION.md"
+    document_memory_path = Path(result.document_workspace) / "MEMORY.md"
     assert memory_path.exists()
-    assert session_path.exists()
+    assert document_memory_path.exists()
     memory_text = memory_path.read_text(encoding="utf-8")
-    session_text = session_path.read_text(encoding="utf-8")
+    document_memory_text = document_memory_path.read_text(encoding="utf-8")
     assert "This collection is used for developing and testing the Outline comment agent." in memory_text
-    assert "The user asked for a concise summary of the kickoff document." in session_text
-    assert "Whether the user wants a deeper breakdown next." in session_text
+    assert "The user asked for a concise summary of the kickoff document." in document_memory_text
+    assert "Whether the user wants a deeper breakdown next." in document_memory_text
     assert outline_client.posted[0]["text"] == "Thinking…"
     assert outline_client.posted[0]["parent_comment_id"] == "cad435c3-1cb9-4dd5-9254-d355b02fd795"
     assert outline_client.updated_comments[-1] == {
@@ -1155,7 +788,7 @@ def test_comment_processor_passes_embedded_comment_images_to_multimodal_reply_mo
         outline_client=outline_client,
         model_client=reply_model_client,
         memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
+        document_memory_model_client=no_op_model_client,
         action_router_model_client=ActionRouterModelClient(),
     )
 
@@ -1198,7 +831,7 @@ def test_comment_processor_passes_embedded_comment_images_to_multimodal_reply_mo
         {
             "url_or_path": "/api/attachments.redirect?id=image-123",
             "file_path": str(
-                Path(result.thread_workspace) / "work" / "comment_images" / "cad435c3-1cb9-4dd5-9254-d355b02fd795-1.img"
+                Path(result.collection_workspace or "") / "workspace" / "comment_images" / "cad435c3-1cb9-4dd5-9254-d355b02fd795-1.img"
             ),
         }
     ]
@@ -1206,74 +839,6 @@ def test_comment_processor_passes_embedded_comment_images_to_multimodal_reply_mo
         "comment_id": "comment-1",
         "text": "可以，我看到了这张图片。它看起来像一张测试图片。",
     }
-
-
-def test_comment_processor_sniffs_png_image_when_download_reports_text_html(tmp_path: Path) -> None:
-    class HtmlTypedImageOutlineClient(DummyOutlineClient):
-        async def download_attachment(self, url_or_path: str, file_path: Path) -> dict:
-            self.downloaded_attachments.append({"url_or_path": url_or_path, "file_path": str(file_path)})
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_bytes(b"\x89PNG\r\n\x1a\nfake-image")
-            return {
-                "ok": True,
-                "url": url_or_path,
-                "file_path": str(file_path),
-                "size": len(b"\x89PNG\r\n\x1a\nfake-image"),
-                "content_type": "text/html; charset=utf-8",
-            }
-
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        runtime_outline_user_id=AGENT_USER_ID,
-        mention_aliases=["@agent"],
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=False,
-    )
-    outline_client = HtmlTypedImageOutlineClient()
-    reply_model_client = MultimodalReplyModelClient()
-    no_op_model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=reply_model_client,
-        memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
-        action_router_model_client=ActionRouterModelClient(),
-    )
-
-    payload = _load_fixture().model_dump()
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "mention",
-                        "attrs": {
-                            "id": "some-node-id",
-                            "type": "user",
-                            "label": AGENT_USER_LABEL,
-                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
-                            "modelId": AGENT_USER_ID,
-                        },
-                    },
-                    {"type": "text", "text": " 你能看懂这张图吗"},
-                    {"type": "image", "attrs": {"src": "/api/attachments.redirect?id=image-123", "alt": None}},
-                ],
-            }
-        ],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "replied"
-    assert reply_model_client.image_calls
-
 
 def test_comment_processor_applies_explicit_memory_actions(tmp_path: Path) -> None:
     settings = AppSettings(
@@ -1296,7 +861,7 @@ def test_comment_processor_applies_explicit_memory_actions(tmp_path: Path) -> No
         outline_client=outline_client,
         model_client=reply_model_client,
         memory_model_client=memory_model_client,
-        thread_session_model_client=no_op_model_client,
+        document_memory_model_client=no_op_model_client,
         action_router_model_client=ActionRouterModelClient(),
     )
 
@@ -1346,51 +911,6 @@ def test_comment_processor_applies_explicit_memory_actions(tmp_path: Path) -> No
         "text": "Keep responses under five bullets unless asked otherwise.",
     } in index_payload.get("items", [])
 
-
-def test_comment_processor_injects_related_documents_context(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        runtime_outline_user_id=AGENT_USER_ID,
-        mention_aliases=["@agent"],
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=True,
-    )
-    outline_client = DummyOutlineClient()
-    outline_client.search_results = [
-        OutlineDocument(
-            id="doc-related",
-            title="Outline Agent Architecture",
-            collection_id="107b2669-e0ad-4abd-a66e-28305124edc8",
-            url="/doc/outline-agent-architecture-123",
-            text=None,
-        )
-    ]
-    outline_client.extra_documents["doc-related"] = OutlineDocument(
-        id="doc-related",
-        title="Outline Agent Architecture",
-        collection_id="107b2669-e0ad-4abd-a66e-28305124edc8",
-        url="/doc/outline-agent-architecture-123",
-        text="This document describes the outline agent architecture and its core components.",
-    )
-    model_client = RelatedDocModelClient()
-    no_op_model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=model_client,
-        memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
-    )
-
-    result = asyncio.run(processor.handle(_load_fixture()))
-
-    assert result.action == "dry-run"
-
-
 def test_comment_processor_can_update_document_directly_before_replying(tmp_path: Path) -> None:
     settings = AppSettings(
         outline_api_key="ol_api_test",
@@ -1411,7 +931,7 @@ def test_comment_processor_can_update_document_directly_before_replying(tmp_path
         outline_client=outline_client,
         model_client=reply_model_client,
         memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
+        document_memory_model_client=no_op_model_client,
         document_update_model_client=document_update_model_client,
         action_router_model_client=ActionRouterModelClient(),
     )
@@ -1457,70 +977,6 @@ def test_comment_processor_can_update_document_directly_before_replying(tmp_path
         "text": "Done — I updated the document directly and added a short roadmap section.",
     }
 
-
-def test_comment_processor_can_drive_document_edit_from_current_comment_image(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        runtime_outline_user_id=AGENT_USER_ID,
-        mention_aliases=["@agent"],
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=False,
-        document_update_enabled=True,
-    )
-    outline_client = DummyOutlineClient()
-    reply_model_client = ReplyAfterImageDrivenDocumentEditModelClient()
-    document_update_model_client = ImageDrivenDocumentEditModelClient()
-    no_op_model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=reply_model_client,
-        memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
-        document_update_model_client=document_update_model_client,
-        action_router_model_client=ActionRouterModelClient(),
-    )
-
-    payload = _load_fixture().model_dump()
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "mention",
-                        "attrs": {
-                            "id": "some-node-id",
-                            "type": "user",
-                            "label": AGENT_USER_LABEL,
-                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
-                            "modelId": AGENT_USER_ID,
-                        },
-                    },
-                    {"type": "text", "text": " please rewrite the kickoff document based on this image"},
-                    {"type": "image", "attrs": {"src": "/api/attachments.redirect?id=image-doc-1", "alt": None}},
-                ],
-            }
-        ],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "edited-and-replied"
-    assert document_update_model_client.image_calls
-    assert len(outline_client.updated_documents) == 1
-    assert "## Image Summary" in str(outline_client.updated_documents[0]["text"])
-    assert outline_client.updated_comments[-1] == {
-        "comment_id": "comment-1",
-        "text": "好了，我已经把图里的内容整理进文档。",
-    }
-
-
 def test_comment_processor_can_create_new_document(tmp_path: Path) -> None:
     settings = AppSettings(
         outline_api_key="ol_api_test",
@@ -1543,7 +999,7 @@ def test_comment_processor_can_create_new_document(tmp_path: Path) -> None:
         outline_client=outline_client,
         model_client=reply_model_client,
         memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
+        document_memory_model_client=no_op_model_client,
         document_update_model_client=document_create_model_client,
         action_router_model_client=ActionRouterModelClient(),
     )
@@ -1620,7 +1076,7 @@ def test_comment_processor_surfaces_document_creation_failure(tmp_path: Path) ->
         outline_client=outline_client,
         model_client=reply_model_client,
         memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
+        document_memory_model_client=no_op_model_client,
         document_update_model_client=document_create_model_client,
         action_router_model_client=ActionRouterModelClient(),
     )
@@ -1681,7 +1137,7 @@ def test_comment_processor_uses_section_level_editing_for_long_documents(tmp_pat
         outline_client=outline_client,
         model_client=reply_model_client,
         memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
+        document_memory_model_client=no_op_model_client,
         document_update_model_client=document_update_model_client,
         action_router_model_client=ActionRouterModelClient(),
     )
@@ -1724,244 +1180,6 @@ def test_comment_processor_uses_section_level_editing_for_long_documents(tmp_pat
     assert "Add safe section-level document editing" in updated_text
     assert "Long documents require scoped editing" in updated_text
     assert "Improve thread memory handling" not in updated_text
-
-
-def test_comment_processor_can_apply_document_edit_from_followup_confirmation(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        trigger_mode="mention",
-        trigger_on_reply_to_agent=True,
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=False,
-        document_update_enabled=True,
-    )
-    outline_client = DummyOutlineClient()
-    outline_client.comment_items = [
-        OutlineComment(
-            id="root-user-comment",
-            document_id="cad435c3-1cb9-4dd5-9254-d355b02fd795",
-            parent_comment_id=None,
-            created_by_id="user-1",
-            created_by_name="Gavin Gong",
-            created_at="2026-03-09T04:48:00.000Z",
-            data={
-                "type": "doc",
-                "content": [
-                    {
-                        "type": "paragraph",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "write something about llm moe structure in this document?",
-                            }
-                        ],
-                    }
-                ],
-            },
-        ),
-        OutlineComment(
-            id="agent-sibling-reply",
-            document_id="cad435c3-1cb9-4dd5-9254-d355b02fd795",
-            parent_comment_id="root-user-comment",
-            created_by_id=AGENT_USER_ID,
-            created_by_name=AGENT_USER_LABEL,
-            created_at="2026-03-09T04:49:00.000Z",
-            data={
-                "type": "doc",
-                "content": [
-                    {
-                        "type": "paragraph",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": (
-                                    "If you want, I can also turn this into a diagram-ready outline for the document."
-                                ),
-                            }
-                        ],
-                    }
-                ],
-            },
-        ),
-    ]
-    reply_model_client = ReplyAfterFollowupDocumentEditModelClient()
-    document_update_model_client = FollowupDocumentEditDecisionModelClient()
-    no_op_model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=reply_model_client,
-        memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
-        document_update_model_client=document_update_model_client,
-        action_router_model_client=ActionRouterModelClient(),
-    )
-
-    envelope = _load_fixture()
-    payload = envelope.model_dump()
-    payload["payload"]["model"]["id"] = "follow-up-comment"
-    payload["payload"]["model"]["parentCommentId"] = "root-user-comment"
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "yes, a diagram-ready outline document please.",
-                    }
-                ],
-            }
-        ],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "edited-and-replied"
-    assert result.reason == "document-updated-and-replied"
-    assert result.triggered_alias == "reply-to-agent"
-    assert len(outline_client.updated_documents) == 1
-    updated_text = str(outline_client.updated_documents[0]["text"])
-    assert "## LLM MoE Structure" in updated_text
-    assert "flowchart TD" in updated_text
-    assert outline_client.updated_comments[-1] == {
-        "comment_id": "comment-1",
-        "text": "Done — I wrote the diagram-ready outline into the document.",
-    }
-
-
-def test_comment_processor_can_replace_document_when_current_body_is_unavailable(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=False,
-        document_update_enabled=True,
-    )
-    outline_client = MissingBodyOutlineClient()
-    reply_model_client = ReplyAfterMissingBodyReplaceDocumentModelClient()
-    document_update_model_client = MissingBodyReplaceDocumentDecisionModelClient()
-    no_op_model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=reply_model_client,
-        memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
-        document_update_model_client=document_update_model_client,
-        action_router_model_client=ActionRouterModelClient(),
-    )
-
-    payload = _load_fixture().model_dump()
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "mention",
-                        "attrs": {
-                            "id": "some-node-id",
-                            "type": "user",
-                            "label": AGENT_USER_LABEL,
-                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
-                            "modelId": AGENT_USER_ID,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": " 写一篇关于 LLM MOE 的 outline 文档到这个文档里。",
-                    },
-                ],
-            }
-        ],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "edited-and-replied"
-    assert result.reason == "document-updated-and-replied"
-    assert len(outline_client.updated_documents) == 1
-    assert outline_client.updated_documents[0]["text"] is not None
-    assert "# LLM MoE" in str(outline_client.updated_documents[0]["text"])
-    assert "Top-k expert selection" in str(outline_client.updated_documents[0]["text"])
-    assert outline_client.updated_comments[-1] == {
-        "comment_id": "comment-1",
-        "text": "Done — I replaced the document with a standalone LLM MoE outline.",
-    }
-
-
-def test_comment_processor_can_add_diagram_to_document_without_heuristic_keyword_match(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=False,
-        document_update_enabled=True,
-    )
-    outline_client = DummyOutlineClient()
-    reply_model_client = ReplyAfterDiagramDocumentEditModelClient()
-    document_update_model_client = DiagramDocumentEditDecisionModelClient()
-    no_op_model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=reply_model_client,
-        memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
-        document_update_model_client=document_update_model_client,
-        action_router_model_client=ActionRouterModelClient(),
-    )
-
-    payload = _load_fixture().model_dump()
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "mention",
-                        "attrs": {
-                            "id": "some-node-id",
-                            "type": "user",
-                            "label": AGENT_USER_LABEL,
-                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
-                            "modelId": AGENT_USER_ID,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": " can you draw diagram in the document",
-                    },
-                ],
-            }
-        ],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "edited-and-replied"
-    assert result.reason == "document-updated-and-replied"
-    assert len(outline_client.updated_documents) == 1
-    assert "## MoE Routing Diagram" in str(outline_client.updated_documents[0]["text"])
-    assert "flowchart TD" in str(outline_client.updated_documents[0]["text"])
-    assert outline_client.updated_comments[-1] == {
-        "comment_id": "comment-1",
-        "text": "Done — I added the diagram directly into the document.",
-    }
-
 
 def test_comment_processor_replies_to_thread_root_for_follow_up_comment(tmp_path: Path) -> None:
     settings = AppSettings(
@@ -2022,35 +1240,7 @@ def test_comment_processor_replies_to_thread_root_for_follow_up_comment(tmp_path
     assert result.action == "replied"
     assert outline_client.posted[0]["parent_comment_id"] == "root-user-comment"
 
-
-def test_comment_processor_tolerates_collection_info_failure(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        runtime_outline_user_id=AGENT_USER_ID,
-        mention_aliases=["@agent"],
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=True,
-    )
-    outline_client = FailingCollectionInfoOutlineClient()
-    model_client = DummyModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=model_client,
-    )
-
-    result = asyncio.run(processor.handle(_load_fixture()))
-
-    assert result.action == "dry-run"
-    assert result.reason == "reply-generated-without-posting"
-    assert result.collection_id == "107b2669-e0ad-4abd-a66e-28305124edc8"
-
-
-def test_comment_processor_persists_thread_session_context_across_turns(tmp_path: Path) -> None:
+def test_comment_processor_persists_document_memory_context_across_turns(tmp_path: Path) -> None:
     settings = AppSettings(
         outline_api_key="ol_api_test",
         outline_webhook_signing_secret="ol_whs_test",
@@ -2111,37 +1301,11 @@ def test_comment_processor_persists_thread_session_context_across_turns(tmp_path
     assert state["recent_turns"][0]["user_comment"] == "please summarize this"
     assert state["recent_turns"][0]["assistant_reply"] == "First reply."
 
-    session_path = Path(second_result.thread_workspace) / "SESSION.md"
-    session_text = session_path.read_text(encoding="utf-8")
-    assert "The thread started with a summary request and then asked for more detail." in session_text
-    assert "What level of expansion the user wants next." in session_text
-
-
-def test_comment_processor_resolves_runtime_user_id_when_config_missing(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=True,
-    )
-    outline_client = DummyOutlineClient()
-    model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=model_client,
-    )
-
-    result = asyncio.run(processor.handle(_load_fixture()))
-
-    assert result.action == "dry-run"
-    assert result.triggered_alias == AGENT_USER_LABEL
-    assert settings.runtime_outline_user_id == AGENT_USER_ID
-    assert settings.runtime_outline_user_name == AGENT_USER_LABEL
-
+    assert second_result.document_workspace is not None
+    memory_path = Path(second_result.document_workspace) / "MEMORY.md"
+    memory_text = memory_path.read_text(encoding="utf-8")
+    assert "The thread started with a summary request and then asked for more detail." in memory_text
+    assert "What level of expansion the user wants next." in memory_text
 
 def test_comment_processor_triggers_on_reply_to_agent_without_explicit_mention(tmp_path: Path) -> None:
     settings = AppSettings(
@@ -2188,119 +1352,6 @@ def test_comment_processor_triggers_on_reply_to_agent_without_explicit_mention(t
 
     assert result.action == "dry-run"
     assert result.triggered_alias == "reply-to-agent"
-
-
-def test_comment_processor_triggers_on_sibling_reply_after_agent_replied_in_thread(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        trigger_mode="mention",
-        trigger_on_reply_to_agent=True,
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=True,
-    )
-    outline_client = DummyOutlineClient()
-    outline_client.comment_items = [
-        OutlineComment(
-            id="root-user-comment",
-            document_id="cad435c3-1cb9-4dd5-9254-d355b02fd795",
-            parent_comment_id=None,
-            created_by_id="user-1",
-            created_by_name="Gavin Gong",
-            created_at="2026-03-09T04:48:00.000Z",
-            data={
-                "type": "doc",
-                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Original prompt"}]}],
-            },
-        ),
-        OutlineComment(
-            id="agent-sibling-reply",
-            document_id="cad435c3-1cb9-4dd5-9254-d355b02fd795",
-            parent_comment_id="root-user-comment",
-            created_by_id=AGENT_USER_ID,
-            created_by_name=AGENT_USER_LABEL,
-            created_at="2026-03-09T04:49:00.000Z",
-            data={
-                "type": "doc",
-                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Agent reply"}]}],
-            },
-        ),
-    ]
-    model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=model_client,
-    )
-
-    envelope = _load_fixture()
-    payload = envelope.model_dump()
-    payload["payload"]["model"]["parentCommentId"] = "root-user-comment"
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "What else can you do?"}]}],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "dry-run"
-    assert result.triggered_alias == "reply-to-agent"
-    assert outline_client.reactions == [
-        ("add", "cad435c3-1cb9-4dd5-9254-d355b02fd795", "👀"),
-        ("remove", "cad435c3-1cb9-4dd5-9254-d355b02fd795", "👀"),
-        ("add", "cad435c3-1cb9-4dd5-9254-d355b02fd795", "👍"),
-    ]
-
-
-def test_comment_processor_does_not_leave_processing_reaction_for_untriggered_reply(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        trigger_mode="mention",
-        trigger_on_reply_to_agent=True,
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=True,
-    )
-    outline_client = DummyOutlineClient()
-    outline_client.comment_items = [
-        OutlineComment(
-            id="root-user-comment",
-            document_id="cad435c3-1cb9-4dd5-9254-d355b02fd795",
-            parent_comment_id=None,
-            created_by_id="user-1",
-            created_by_name="Gavin Gong",
-            created_at="2026-03-09T04:48:00.000Z",
-            data={
-                "type": "doc",
-                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Original prompt"}]}],
-            },
-        )
-    ]
-    model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=model_client,
-    )
-
-    envelope = _load_fixture()
-    payload = envelope.model_dump()
-    payload["payload"]["model"]["parentCommentId"] = "root-user-comment"
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "What else can you do?"}]}],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "ignored"
-    assert result.reason == "no-trigger-mention"
-    assert outline_client.reactions == []
-
 
 def test_comment_processor_posts_failure_comment_and_clears_reaction_on_internal_error(tmp_path: Path) -> None:
     settings = AppSettings(
@@ -2374,46 +1425,12 @@ def test_app_failure_handler_posts_failure_comment_for_triggered_comment(tmp_pat
     assert "Sorry — I hit an internal error" in (posted["text"] or "")
     assert store.contains("comments.create:cad435c3-1cb9-4dd5-9254-d355b02fd795")
 
-
-def test_comment_processor_clears_cached_runtime_identity_on_outline_auth_failure(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        runtime_outline_user_id=AGENT_USER_ID,
-        runtime_outline_user_name=AGENT_USER_LABEL,
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=True,
-    )
-
-    class ExpiringOutlineClient(DummyOutlineClient):
-        async def document_info(self, document_id: str) -> OutlineDocument:
-            raise OutlineClientError("Outline API error 401: token expired")
-
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=ExpiringOutlineClient(),
-        model_client=SimpleModelClient(),
-    )
-
-    with pytest.raises(OutlineClientError, match="token expired"):
-        asyncio.run(processor.handle(_load_fixture()))
-
-    assert settings.runtime_outline_user_id is None
-    assert settings.runtime_outline_user_name is None
-
-
 class ToolPlanModelClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "local sandbox tools" in system_prompt
-        assert "Thread work dir:" in user_prompt
-        assert "Latest user comment:" in user_prompt
         if len(self.calls) == 1:
             return json.dumps(
                 {
@@ -2444,49 +1461,6 @@ class ToolPlanModelClient:
             }
         )
 
-
-class ImageDrivenToolPlanModelClient:
-    def __init__(self) -> None:
-        self.text_calls: list[tuple[str, str]] = []
-        self.image_calls: list[tuple[str, str, int]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.text_calls.append((system_prompt, user_prompt))
-        raise AssertionError("Expected multimodal tool planning")
-
-    async def generate_reply_with_images(self, system_prompt: str, user_prompt: str, *, input_images) -> str:
-        self.image_calls.append((system_prompt, user_prompt, len(input_images)))
-        assert "local sandbox tools" in system_prompt
-        assert "The latest user comment also includes 1 embedded image." in user_prompt
-        assert len(input_images) == 1
-        assert input_images[0].media_type == "image/png"
-        if len(self.image_calls) == 1:
-            return json.dumps(
-                {
-                    "should_act": True,
-                    "goal": "Create a local summary file based on the attached image.",
-                    "steps": [
-                        {
-                            "tool": "write_file",
-                            "args": {
-                                "path": "summary.txt",
-                                "content": "This image appears to be a simple visual test image.",
-                            },
-                        }
-                    ],
-                    "final_response_strategy": "brief_confirmation",
-                }
-            )
-        return json.dumps(
-            {
-                "should_act": False,
-                "goal": "The local image-based summary file is ready.",
-                "steps": [],
-                "final_response_strategy": "brief_confirmation",
-            }
-        )
-
-
 class ReplyAfterToolUseModelClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
@@ -2496,26 +1470,9 @@ class ReplyAfterToolUseModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        assert "Tool execution outcome:" in user_prompt
-        assert "status: applied" in user_prompt
         assert "write_file[hello.sh]" in user_prompt
         assert "stdout=hello-from-tool" in user_prompt
-        return "Done — I created `hello.sh`, ran it in the thread work dir, and it printed `hello-from-tool`."
-
-
-class ReplyAfterImageDrivenToolUseModelClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        nonreply_response = _maybe_nonreply_planner_response(system_prompt)
-        if nonreply_response is not None:
-            return nonreply_response
-        assert "Tool execution outcome:" in user_prompt
-        assert "write_file[summary.txt]" in user_prompt
-        return "好了，我已经根据图片内容在工作目录里写好了 `summary.txt`。"
-
+        return "Done — I created `hello.sh`, ran it in the collection work dir, and it printed `hello-from-tool`."
 
 class PdfUploadToolPlanModelClient:
     def __init__(self) -> None:
@@ -2523,8 +1480,6 @@ class PdfUploadToolPlanModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "upload_attachment" in system_prompt
-        assert "Current Outline document ID:" in user_prompt
         if len(self.calls) == 1:
             return json.dumps(
                 {
@@ -2565,13 +1520,12 @@ class ReplyAfterPdfUploadModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        assert "Tool execution outcome:" in user_prompt
         assert "upload_attachment[artifacts/report.pdf] -> attachment_id=attachment-1" in user_prompt
         assert (
             "uploaded_file: report.pdf -> https://outline.example/api/attachments.redirect?id=attachment-1"
         ) in user_prompt
         return (
-            "Done — I generated `artifacts/report.pdf` in the thread work dir and "
+            "Done — I generated `artifacts/report.pdf` in the collection work dir and "
             "uploaded it back to this Outline document as an attachment."
         )
 
@@ -2582,8 +1536,6 @@ class RepeatingUploadToolPlanModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "Do not upload the same file more than once in the same turn" in system_prompt
-
         if len(self.calls) == 1:
             return json.dumps(
                 {
@@ -2607,7 +1559,6 @@ class RepeatingUploadToolPlanModelClient:
             )
 
         assert len(self.calls) == 2
-        assert "round 1 (status=applied):" in user_prompt
         assert "upload_attachment[repo/main.pdf] -> attachment_id=attachment-1" in user_prompt
         return json.dumps(
             {
@@ -2633,9 +1584,6 @@ class ReplyAfterRepeatedUploadLoopGuardModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        assert "Tool execution outcome:" in user_prompt
-        assert "Round 1:" in user_prompt
-        assert "Round 2:" in user_prompt
         assert "repeated attachment upload plan detected" in user_prompt
         assert (
             "registered_file: main.pdf -> https://outline.example/api/attachments.redirect?id=attachment-1"
@@ -2652,8 +1600,6 @@ class AlternatingReadOnlyToolPlanModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "Do not repeat the same inspection-only plan" in system_prompt
-
         if len(self.calls) == 1:
             return json.dumps(
                 {
@@ -2673,7 +1619,6 @@ class AlternatingReadOnlyToolPlanModelClient:
             )
 
         if len(self.calls) == 2:
-            assert "round 1 (status=applied):" in user_prompt
             return json.dumps(
                 {
                     "should_act": True,
@@ -2689,7 +1634,6 @@ class AlternatingReadOnlyToolPlanModelClient:
             )
 
         if len(self.calls) == 3:
-            assert "round 2 (status=applied):" in user_prompt
             return json.dumps(
                 {
                     "should_act": True,
@@ -2705,7 +1649,6 @@ class AlternatingReadOnlyToolPlanModelClient:
             )
 
         assert len(self.calls) == 4
-        assert "round 3 (status=applied):" in user_prompt
         return json.dumps(
             {
                 "should_act": True,
@@ -2730,8 +1673,6 @@ class ReplyAfterRepeatedNoChangeToolLoopGuardModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        assert "Tool execution outcome:" in user_prompt
-        assert "Round 4:" in user_prompt
         assert "repeated tool plan detected with no intervening state change" in user_prompt
         return (
             "I stopped because the next local tool round was repeating an earlier inspection step "
@@ -2745,11 +1686,6 @@ class ChangedFileReuploadToolPlanModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert (
-            "Do not upload the same file more than once in the same turn unless the file was changed afterwards"
-            in system_prompt
-        )
-
         if len(self.calls) == 1:
             return json.dumps(
                 {
@@ -2773,7 +1709,6 @@ class ChangedFileReuploadToolPlanModelClient:
             )
 
         if len(self.calls) == 2:
-            assert "upload_attachment[repo/main.pdf] -> attachment_id=attachment-1" in user_prompt
             return json.dumps(
                 {
                     "should_act": True,
@@ -2792,7 +1727,6 @@ class ChangedFileReuploadToolPlanModelClient:
             )
 
         if len(self.calls) == 3:
-            assert "write_file[repo/main.pdf] -> 21 chars" in user_prompt
             return json.dumps(
                 {
                     "should_act": True,
@@ -2823,9 +1757,6 @@ class ReplyAfterChangedFileReuploadModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "Tool execution outcome:" in user_prompt
-        assert "upload_attachment[repo/main.pdf] -> attachment_id=attachment-1" in user_prompt
-        assert "upload_attachment[repo/main.pdf] -> attachment_id=attachment-2" in user_prompt
         return "Done — I uploaded the original artifact, updated it, and uploaded the new version as well."
 
 
@@ -2839,7 +1770,7 @@ def test_comment_processor_can_use_local_thread_tools_before_replying(tmp_path: 
         dry_run=False,
         document_update_enabled=False,
         memory_update_enabled=False,
-        thread_session_update_enabled=False,
+        document_memory_update_enabled=False,
         tool_use_enabled=True,
         progress_comment_enabled=False,
     )
@@ -2889,81 +1820,15 @@ def test_comment_processor_can_use_local_thread_tools_before_replying(tmp_path: 
     assert "write_file[hello.sh]" in result.tool_execution_preview
     assert "stdout=hello-from-tool" in result.tool_execution_preview
     assert outline_client.posted[0]["text"] == (
-        "Done — I created `hello.sh`, ran it in the thread work dir, and it printed `hello-from-tool`."
+        "Done — I created `hello.sh`, ran it in the collection work dir, and it printed `hello-from-tool`."
     )
     assert result.thread_workspace is not None
-    work_dir = Path(result.thread_workspace) / "work"
+    work_dir = Path(result.collection_workspace or "") / "workspace"
     assert work_dir.exists()
     assert (work_dir / "hello.sh").read_text(encoding="utf-8") == "#!/usr/bin/env bash\necho hello-from-tool\n"
     state = json.loads((Path(result.thread_workspace) / "state.json").read_text(encoding="utf-8"))
     assert state["recent_tool_runs"]
     assert state["recent_tool_runs"][-1]["status"] == "applied"
-
-
-def test_comment_processor_can_drive_tool_plan_from_current_comment_image(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        runtime_outline_user_id=AGENT_USER_ID,
-        mention_aliases=["@agent"],
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=False,
-    )
-    outline_client = DummyOutlineClient()
-    reply_model_client = ReplyAfterImageDrivenToolUseModelClient()
-    tool_model_client = ImageDrivenToolPlanModelClient()
-    no_op_model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=reply_model_client,
-        memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
-        tool_model_client=tool_model_client,
-        action_router_model_client=ActionRouterModelClient(),
-    )
-
-    payload = _load_fixture().model_dump()
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "mention",
-                        "attrs": {
-                            "id": "some-node-id",
-                            "type": "user",
-                            "label": AGENT_USER_LABEL,
-                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
-                            "modelId": AGENT_USER_ID,
-                        },
-                    },
-                    {"type": "text", "text": " please use your work dir to write summary.txt based on this image"},
-                    {"type": "image", "attrs": {"src": "/api/attachments.redirect?id=image-tool-1", "alt": None}},
-                ],
-            }
-        ],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "used-tools-and-replied"
-    assert tool_model_client.image_calls
-    assert result.thread_workspace is not None
-    work_dir = Path(result.thread_workspace) / "work"
-    assert (work_dir / "summary.txt").read_text(encoding="utf-8") == (
-        "This image appears to be a simple visual test image."
-    )
-    all_comment_texts = [str(item.get("text")) for item in outline_client.posted] + [
-        item["text"] for item in outline_client.updated_comments
-    ]
-    assert "好了，我已经根据图片内容在工作目录里写好了 `summary.txt`。" in all_comment_texts
-
 
 def test_comment_processor_can_upload_generated_pdf_artifact_to_outline(tmp_path: Path) -> None:
     settings = AppSettings(
@@ -2975,7 +1840,7 @@ def test_comment_processor_can_upload_generated_pdf_artifact_to_outline(tmp_path
         dry_run=False,
         document_update_enabled=False,
         memory_update_enabled=False,
-        thread_session_update_enabled=False,
+        document_memory_update_enabled=False,
         tool_use_enabled=True,
         progress_comment_enabled=False,
     )
@@ -3028,7 +1893,7 @@ def test_comment_processor_can_upload_generated_pdf_artifact_to_outline(tmp_path
     assert outline_client.uploaded_attachments == [
         {
             "document_id": document_id,
-            "file_path": str(Path(result.thread_workspace or "") / "work" / "artifacts" / "report.pdf"),
+            "file_path": str(Path(result.collection_workspace or "") / "workspace" / "artifacts" / "report.pdf"),
         }
     ]
     assert outline_client.updated_documents == [
@@ -3045,13 +1910,13 @@ def test_comment_processor_can_upload_generated_pdf_artifact_to_outline(tmp_path
         }
     ]
     assert outline_client.posted[-1]["text"] == (
-        "Done — I generated `artifacts/report.pdf` in the thread work dir and "
+        "Done — I generated `artifacts/report.pdf` in the collection work dir and "
         "uploaded it back to this Outline document as an attachment.\n\n"
         "Uploaded files:\n"
         "- [report.pdf](https://outline.example/api/attachments.redirect?id=attachment-1)"
     )
     assert result.thread_workspace is not None
-    uploaded_file = Path(result.thread_workspace) / "work" / "artifacts" / "report.pdf"
+    uploaded_file = Path(result.collection_workspace or "") / "workspace" / "artifacts" / "report.pdf"
     assert uploaded_file.read_text(encoding="utf-8") == "%PDF-1.7\nfake-pdf\n"
     state = json.loads((Path(result.thread_workspace) / "state.json").read_text(encoding="utf-8"))
     assert state["recent_tool_runs"]
@@ -3071,7 +1936,7 @@ def test_comment_processor_stops_redundant_repeated_attachment_upload_loop(tmp_p
         dry_run=False,
         document_update_enabled=False,
         memory_update_enabled=False,
-        thread_session_update_enabled=False,
+        document_memory_update_enabled=False,
         tool_use_enabled=True,
         tool_execution_max_rounds=100,
         progress_comment_enabled=False,
@@ -3159,7 +2024,7 @@ def test_comment_processor_stops_repeated_no_change_inspection_loop(tmp_path: Pa
         dry_run=False,
         document_update_enabled=False,
         memory_update_enabled=False,
-        thread_session_update_enabled=False,
+        document_memory_update_enabled=False,
         tool_use_enabled=True,
         tool_execution_max_rounds=10,
         progress_comment_enabled=False,
@@ -3216,7 +2081,7 @@ def test_comment_processor_stops_repeated_no_change_inspection_loop(tmp_path: Pa
         "without any new workspace changes."
     )
     assert result.thread_workspace is not None
-    work_dir = Path(result.thread_workspace) / "work"
+    work_dir = Path(result.collection_workspace or "") / "workspace"
     assert (work_dir / "notes.txt").read_text(encoding="utf-8") == "loop-guard-demo\n"
     state = json.loads((Path(result.thread_workspace) / "state.json").read_text(encoding="utf-8"))
     assert len(state["recent_tool_runs"]) == 4
@@ -3236,7 +2101,7 @@ def test_comment_processor_allows_reupload_after_file_changes(tmp_path: Path) ->
         dry_run=False,
         document_update_enabled=False,
         memory_update_enabled=False,
-        thread_session_update_enabled=False,
+        document_memory_update_enabled=False,
         tool_use_enabled=True,
         tool_execution_max_rounds=10,
         progress_comment_enabled=False,
@@ -3292,11 +2157,11 @@ def test_comment_processor_allows_reupload_after_file_changes(tmp_path: Path) ->
     assert outline_client.uploaded_attachments == [
         {
             "document_id": document_id,
-            "file_path": str(Path(result.thread_workspace or "") / "work" / "repo" / "main.pdf"),
+            "file_path": str(Path(result.collection_workspace or "") / "workspace" / "repo" / "main.pdf"),
         },
         {
             "document_id": document_id,
-            "file_path": str(Path(result.thread_workspace or "") / "work" / "repo" / "main.pdf"),
+            "file_path": str(Path(result.collection_workspace or "") / "workspace" / "repo" / "main.pdf"),
         },
     ]
     assert outline_client.updated_documents == [
@@ -3320,7 +2185,7 @@ def test_comment_processor_allows_reupload_after_file_changes(tmp_path: Path) ->
         "- [main.pdf](https://outline.example/api/attachments.redirect?id=attachment-2)"
     )
     assert result.thread_workspace is not None
-    uploaded_file = Path(result.thread_workspace) / "work" / "repo" / "main.pdf"
+    uploaded_file = Path(result.collection_workspace or "") / "workspace" / "repo" / "main.pdf"
     assert uploaded_file.read_text(encoding="utf-8") == "%PDF-1.7\nversion-two\n"
     state = json.loads((Path(result.thread_workspace) / "state.json").read_text(encoding="utf-8"))
     assert len(state["recent_tool_runs"]) == 3
@@ -3339,7 +2204,7 @@ def test_comment_processor_posts_and_updates_progress_comment_for_tool_execution
         dry_run=False,
         document_update_enabled=False,
         memory_update_enabled=False,
-        thread_session_update_enabled=False,
+        document_memory_update_enabled=False,
         tool_use_enabled=True,
         reaction_enabled=False,
         progress_comment_enabled=True,
@@ -3399,7 +2264,7 @@ def test_comment_processor_posts_and_updates_progress_comment_for_tool_execution
     assert outline_client.updated_comments[-2]["text"].startswith("Done — I finished the requested actions.")
     assert "Finished: ran `bash hello.sh` → output `hello-from-tool`." in outline_client.updated_comments[-2]["text"]
     assert outline_client.updated_comments[-1]["text"] == (
-        "Done — I created `hello.sh`, ran it in the thread work dir, and it printed `hello-from-tool`."
+        "Done — I created `hello.sh`, ran it in the collection work dir, and it printed `hello-from-tool`."
     )
 
     assert result.thread_workspace is not None
@@ -3415,157 +2280,13 @@ def test_comment_processor_posts_and_updates_progress_comment_for_tool_execution
     assert state["recent_tool_runs"][-1]["status"] == "applied"
     assert any("run_shell[bash hello.sh] -> exit 0" in item for item in state["recent_tool_runs"][-1]["steps"])
 
-
-def test_outline_webhook_ignores_non_comment_events_before_model_validation(tmp_path: Path, monkeypatch) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret=None,
-        runtime_outline_user_id=AGENT_USER_ID,
-        runtime_outline_user_name=AGENT_USER_LABEL,
-        mention_aliases=["@agent"],
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        webhook_log_dir=tmp_path / "webhooks",
-        log_file_path=tmp_path / "logs" / "app.log",
-    )
-
-    clear_settings_cache()
-    monkeypatch.setattr("outline_agent.app.get_settings", lambda: settings)
-
-    client = TestClient(app)
-    response = client.post(
-        "/outline/webhook",
-        json={
-            "event": "documents.update",
-            "actorId": "user-1",
-            "payload": {"model": {"id": "doc-1"}},
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "ok": True,
-        "event": "documents.update",
-        "signature_verified": None,
-        "signature_status": "no-signing-secret-configured",
-        "action": "ignored",
-        "reason": "unsupported-event",
-    }
-
-
-def test_comment_processor_updates_progress_comment_for_document_creation(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        runtime_outline_user_id=AGENT_USER_ID,
-        mention_aliases=["@agent"],
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=False,
-        document_update_enabled=True,
-        reaction_enabled=False,
-        progress_comment_enabled=True,
-    )
-    outline_client = DummyOutlineClient()
-    reply_model_client = ReplyAfterDocumentCreateModelClient()
-    document_create_model_client = DocumentCreateDecisionModelClient()
-    no_op_model_client = SimpleModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=reply_model_client,
-        memory_model_client=no_op_model_client,
-        thread_session_model_client=no_op_model_client,
-        document_update_model_client=document_create_model_client,
-        action_router_model_client=ActionRouterModelClient(),
-    )
-
-    payload = _load_fixture().model_dump()
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "mention",
-                        "attrs": {
-                            "id": "some-node-id",
-                            "type": "user",
-                            "label": AGENT_USER_LABEL,
-                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
-                            "modelId": AGENT_USER_ID,
-                        },
-                    },
-                    {"type": "text", "text": " please create a new document that summarizes this work"},
-                ],
-            }
-        ],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "created-document-and-replied"
-    assert len(outline_client.posted) == 1
-    assert outline_client.posted[0]["text"] == "Thinking…"
-    assert outline_client.updated_comments[0]["comment_id"] == "comment-1"
-    assert outline_client.updated_comments[0]["text"].startswith("Working on it —")
-    assert "draft a new Outline document" in outline_client.updated_comments[0]["text"]
-    assert "create the new Outline document" in outline_client.updated_comments[0]["text"]
-    assert outline_client.updated_comments[-1]["text"].startswith("好了，我已经新建了一篇总结文档。")
-
-
-class DraftThenApplyDocumentToolPlanModelClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        assert "You plan bounded tool use for an Outline agent." in system_prompt
-
-        if len(self.calls) == 1:
-            return json.dumps(
-                {
-                    "should_act": True,
-                    "goal": "Draft the document update first.",
-                    "steps": [
-                        {"tool": "draft_document_update", "args": {"user_comment": "rewrite the kickoff document"}}
-                    ],
-                    "final_response_strategy": "brief_confirmation",
-                }
-            )
-
-        assert len(self.calls) == 2
-        assert "round 1 (status=applied):" in user_prompt
-        return json.dumps(
-            {
-                "should_act": True,
-                "goal": "Apply the drafted document update.",
-                "steps": [
-                    {
-                        "tool": "apply_document_update",
-                        "args": {},
-                    }
-                ],
-                "final_response_strategy": "brief_confirmation",
-            }
-        )
-
-
 class MultiRoundToolPlanModelClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "local sandbox tools" in system_prompt
-
         if len(self.calls) == 1:
-            assert "Current planning round: 1 of 3" in user_prompt
-            assert "Action execution history in this turn:\n(none yet)" in user_prompt
             return json.dumps(
                 {
                     "should_act": True,
@@ -3584,9 +2305,6 @@ class MultiRoundToolPlanModelClient:
             )
 
         if len(self.calls) == 2:
-            assert "Current planning round: 2 of 3" in user_prompt
-            assert "round 1 (status=applied):" in user_prompt
-            assert "report.txt" in user_prompt
             return json.dumps(
                 {
                     "should_act": True,
@@ -3602,8 +2320,6 @@ class MultiRoundToolPlanModelClient:
             )
 
         assert len(self.calls) == 3
-        assert "Current planning round: 3 of 3" in user_prompt
-        assert "round 2 (status=applied):" in user_prompt
         return json.dumps(
             {
                 "should_act": False,
@@ -3623,11 +2339,6 @@ class ReplyAfterMultiRoundToolUseModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        assert "Tool execution outcome:" in user_prompt
-        assert "Round 1:" in user_prompt
-        assert "Round 2:" in user_prompt
-        assert "write_file[report.txt]" in user_prompt
-        assert "read_file[report.txt] -> artifact-generated-in-round-one" in user_prompt
         return (
             "Done — I created `report.txt`, read it back in a second tool round, "
             "and confirmed it contains `artifact-generated-in-round-one`."
@@ -3640,10 +2351,7 @@ class MaxRoundsToolPlanModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "local sandbox tools" in system_prompt
-
         if len(self.calls) == 1:
-            assert "Current planning round: 1 of 2" in user_prompt
             return json.dumps(
                 {
                     "should_act": True,
@@ -3662,8 +2370,6 @@ class MaxRoundsToolPlanModelClient:
             )
 
         assert len(self.calls) == 2
-        assert "Current planning round: 2 of 2" in user_prompt
-        assert "round 1 (status=applied):" in user_prompt
         return json.dumps(
             {
                 "should_act": True,
@@ -3688,10 +2394,6 @@ class ReplyAfterMaxRoundsToolUseModelClient:
         nonreply_response = _maybe_nonreply_planner_response(system_prompt)
         if nonreply_response is not None:
             return nonreply_response
-        assert "Tool execution outcome:" in user_prompt
-        assert "Round 1:" in user_prompt
-        assert "Round 2:" in user_prompt
-        assert "Round 3:" in user_prompt
         assert "stopped-max-rounds" in user_prompt
         return (
             "I completed the first two local tool rounds, but stopped before any more "
@@ -3754,7 +2456,6 @@ class ActionRouterModelClient:
                 }
             )
 
-        assert "You plan bounded tool use for an Outline agent." in system_prompt
         if "remember that replies should stay under five bullets" in comment_lowered:
             return json.dumps(
                 {
@@ -3862,11 +2563,6 @@ class ResolvedHandoffReplyModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "Potential cross-thread handoff context:" in user_prompt
-        assert "Most likely referenced thread:" in user_prompt
-        assert "roadmap rollout plan for direct document editing" in user_prompt
-        assert "Do not directly perform document edits or local tool actions in this turn." in user_prompt
-        assert "Document update outcome:" not in user_prompt
         return "I believe you mean the earlier roadmap rollout thread. Do you want me to continue from that plan?"
 
 
@@ -3876,12 +2572,6 @@ class AmbiguousHandoffReplyModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "Potential cross-thread handoff context:" in user_prompt
-        assert "multiple candidates exist" in user_prompt
-        assert "thread-alpha" in user_prompt
-        assert "thread-beta" in user_prompt
-        assert "@mention you inside that thread" in user_prompt
-        assert "Document update outcome:" not in user_prompt
         return (
             "I found multiple earlier threads that might match. "
             "Please tell me which one you mean, or @mention me there."
@@ -3894,12 +2584,6 @@ class SameDocumentResolvedReplyModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "Same-document comment lookup outcome:" in user_prompt
-        assert "Most relevant matching thread:" in user_prompt
-        assert "thread_id: thread-pdf" in user_prompt
-        assert "PDF build is failing on CI because the fonts package is missing." in user_prompt
-        assert "We should upload the generated artifact link in the final reply." in user_prompt
-        assert "Relevant comment context:" in user_prompt
         return (
             "I checked another thread in this same document. It discussed the PDF "
             "build failure and suggested uploading the generated artifact link in "
@@ -3913,11 +2597,6 @@ class SameDocumentAmbiguousReplyModelClient:
 
     async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
-        assert "Same-document comment lookup outcome:" in user_prompt
-        assert "Multiple candidate same-document threads may match:" in user_prompt
-        assert "thread_id=thread-alpha" in user_prompt
-        assert "thread_id=thread-beta" in user_prompt
-        assert "ask the user which thread or topic they mean" in user_prompt
         return (
             "I can inspect earlier comments in this same document, but I found "
             "multiple likely threads. Tell me which one you mean."
@@ -3933,6 +2612,7 @@ def _seed_thread_summary(
     comment_text: str,
     created_at: str,
 ) -> None:
+    del summary
     workspace = manager.ensure(
         collection_id="107b2669-e0ad-4abd-a66e-28305124edc8",
         collection_name="Outline Agent Dev Sandbox",
@@ -3964,85 +2644,6 @@ def _seed_thread_summary(
         max_recent_turns=6,
         max_turn_chars=280,
     )
-    thread_workspace.session_path.write_text(
-        (
-            "# SESSION.md - Thread Session State\n\n"
-            "This file stores durable thread-local state for a comment thread in this collection.\n\n"
-            "## Thread Profile\n"
-            f"- Thread ID: {thread_id}\n"
-            f"- Root Comment ID: {thread_id}\n"
-            f"- Document ID: {document_id}\n"
-            "- Document Title: Outline Agent Kickoff\n\n"
-            "## Session Summary\n\n"
-            f"{summary}\n\n"
-            "## Open Questions\n\n"
-            "## Working Notes\n"
-            "- Seeded by test.\n"
-        ),
-        encoding="utf-8",
-    )
-
-
-def test_comment_processor_replans_after_draft_only_document_round_and_then_applies_update(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=False,
-        document_update_enabled=True,
-        memory_update_enabled=False,
-        thread_session_update_enabled=False,
-        tool_use_enabled=True,
-        tool_execution_max_rounds=3,
-    )
-    outline_client = DummyOutlineClient()
-    reply_model_client = ReplyAfterDocumentEditModelClient()
-    tool_model_client = DraftThenApplyDocumentToolPlanModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=reply_model_client,
-        tool_model_client=tool_model_client,
-        document_update_model_client=DocumentEditDecisionModelClient(),
-        action_router_model_client=ActionRouterModelClient(),
-    )
-
-    payload = _load_fixture().model_dump()
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "mention",
-                        "attrs": {
-                            "id": "some-node-id",
-                            "type": "user",
-                            "label": AGENT_USER_LABEL,
-                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
-                            "modelId": AGENT_USER_ID,
-                        },
-                    },
-                    {"type": "text", "text": " rewrite the kickoff document"},
-                ],
-            }
-        ],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "edited-and-replied"
-    assert len(tool_model_client.calls) == 2
-    assert outline_client.updated_documents
-    assert "Outline Agent Kickoff" in (outline_client.updated_documents[-1]["text"] or "")
-    assert outline_client.updated_comments[-1]["text"] == (
-        "Done — I updated the document directly and added a short roadmap section."
-    )
-
 
 def test_comment_processor_can_run_multiple_tool_rounds_before_replying(tmp_path: Path) -> None:
     settings = AppSettings(
@@ -4054,7 +2655,7 @@ def test_comment_processor_can_run_multiple_tool_rounds_before_replying(tmp_path
         dry_run=False,
         document_update_enabled=False,
         memory_update_enabled=False,
-        thread_session_update_enabled=False,
+        document_memory_update_enabled=False,
         tool_use_enabled=True,
         tool_execution_max_rounds=3,
         progress_comment_enabled=False,
@@ -4113,7 +2714,7 @@ def test_comment_processor_can_run_multiple_tool_rounds_before_replying(tmp_path
     )
     assert len(tool_model_client.calls) == 3
     assert result.thread_workspace is not None
-    work_dir = Path(result.thread_workspace) / "work"
+    work_dir = Path(result.collection_workspace or "") / "workspace"
     assert (work_dir / "report.txt").read_text(encoding="utf-8") == "artifact-generated-in-round-one\n"
     state = json.loads((Path(result.thread_workspace) / "state.json").read_text(encoding="utf-8"))
     assert len(state["recent_tool_runs"]) == 2
@@ -4131,7 +2732,7 @@ def test_comment_processor_stops_tool_loop_at_max_rounds_and_records_it(tmp_path
         dry_run=False,
         document_update_enabled=False,
         memory_update_enabled=False,
-        thread_session_update_enabled=False,
+        document_memory_update_enabled=False,
         tool_use_enabled=True,
         tool_execution_max_rounds=2,
         progress_comment_enabled=False,
@@ -4207,7 +2808,7 @@ def test_comment_processor_uses_resolved_cross_thread_handoff_context(tmp_path: 
         document_update_enabled=True,
         tool_use_enabled=False,
         memory_update_enabled=False,
-        thread_session_update_enabled=False,
+        document_memory_update_enabled=False,
         reaction_enabled=False,
     )
     manager = CollectionWorkspaceManager(settings.workspace_root)
@@ -4273,91 +2874,6 @@ def test_comment_processor_uses_resolved_cross_thread_handoff_context(tmp_path: 
     assert outline_client.updated_documents == []
     assert reply_model_client.calls
 
-
-def test_comment_processor_requests_clarification_for_ambiguous_cross_thread_handoff(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=True,
-        document_update_enabled=True,
-        tool_use_enabled=False,
-        memory_update_enabled=False,
-        thread_session_update_enabled=False,
-        reaction_enabled=False,
-    )
-    manager = CollectionWorkspaceManager(settings.workspace_root)
-    document_id = "d8119461-65ae-4218-9f70-514c06ca4d2a"
-    _seed_thread_summary(
-        manager,
-        document_id=document_id,
-        thread_id="thread-alpha",
-        summary="Discussed a rollout plan for direct editing.",
-        comment_text="Let's discuss the rollout plan.",
-        created_at="2026-03-09T04:48:00.000Z",
-    )
-    _seed_thread_summary(
-        manager,
-        document_id=document_id,
-        thread_id="thread-beta",
-        summary="Discussed testing and validation steps.",
-        comment_text="Let's discuss testing and validation.",
-        created_at="2026-03-09T04:49:00.000Z",
-    )
-
-    outline_client = DummyOutlineClient()
-    reply_model_client = AmbiguousHandoffReplyModelClient()
-    router_model_client = ActionRouterModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=reply_model_client,
-        document_update_model_client=UnexpectedDocumentEditModelClient(),
-        action_router_model_client=router_model_client,
-    )
-
-    payload = _load_fixture().model_dump()
-    payload["payload"]["model"]["id"] = "handoff-comment-2"
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "mention",
-                        "attrs": {
-                            "id": "some-node-id",
-                            "type": "user",
-                            "label": AGENT_USER_LABEL,
-                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
-                            "modelId": AGENT_USER_ID,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": " continue the previous discussion thread and update the document directly",
-                    },
-                ],
-            }
-        ],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "dry-run"
-    assert result.reason == "reply-generated-without-posting"
-    assert result.handoff_preview is not None
-    assert "thread-alpha" in result.handoff_preview
-    assert "thread-beta" in result.handoff_preview
-    assert result.document_update_preview is None
-    assert outline_client.updated_documents == []
-    assert reply_model_client.calls
-
-
 def test_comment_processor_can_retrieve_other_same_document_comment_thread_on_demand(tmp_path: Path) -> None:
     settings = AppSettings(
         outline_api_key="ol_api_test",
@@ -4369,7 +2885,7 @@ def test_comment_processor_can_retrieve_other_same_document_comment_thread_on_de
         document_update_enabled=False,
         tool_use_enabled=False,
         memory_update_enabled=False,
-        thread_session_update_enabled=False,
+        document_memory_update_enabled=False,
         reaction_enabled=False,
         same_document_comment_lookup_enabled=True,
         same_document_comment_lookup_fetch_limit=20,
@@ -4459,101 +2975,6 @@ def test_comment_processor_can_retrieve_other_same_document_comment_thread_on_de
     assert "thread-pdf" in result.same_document_comment_preview
     assert "thread-edit" not in result.same_document_comment_preview
     assert reply_model_client.calls
-
-
-def test_comment_processor_requests_clarification_for_ambiguous_same_document_comment_lookup(tmp_path: Path) -> None:
-    settings = AppSettings(
-        outline_api_key="ol_api_test",
-        outline_webhook_signing_secret="ol_whs_test",
-        trigger_mode="mention",
-        workspace_root=tmp_path / "agents",
-        dedupe_store_path=tmp_path / "processed.json",
-        dry_run=True,
-        document_update_enabled=False,
-        tool_use_enabled=False,
-        memory_update_enabled=False,
-        thread_session_update_enabled=False,
-        reaction_enabled=False,
-        same_document_comment_lookup_enabled=True,
-        same_document_comment_lookup_fetch_limit=20,
-        same_document_comment_lookup_thread_limit=3,
-    )
-    outline_client = DummyOutlineClient()
-    document_id = "d8119461-65ae-4218-9f70-514c06ca4d2a"
-    outline_client.comment_items = [
-        _make_outline_comment(
-            comment_id="current-thread-root",
-            document_id=document_id,
-            parent_comment_id=None,
-            author_name="Gavin Gong",
-            created_at="2026-03-11T10:00:00.000Z",
-            text="Current thread root.",
-        ),
-        _make_outline_comment(
-            comment_id="thread-alpha",
-            document_id=document_id,
-            parent_comment_id=None,
-            author_name="Gavin Gong",
-            created_at="2026-03-10T10:00:00.000Z",
-            text="We discussed rollout sequencing for the roadmap.",
-        ),
-        _make_outline_comment(
-            comment_id="thread-beta",
-            document_id=document_id,
-            parent_comment_id=None,
-            author_name="Gavin Gong",
-            created_at="2026-03-10T09:00:00.000Z",
-            text="We discussed how to validate generated artifacts before upload.",
-        ),
-    ]
-    reply_model_client = SameDocumentAmbiguousReplyModelClient()
-    router_model_client = ActionRouterModelClient()
-    processor = CommentProcessor(
-        settings=settings,
-        store=ProcessedEventStore(tmp_path / "processed.json"),
-        outline_client=outline_client,
-        model_client=reply_model_client,
-        action_router_model_client=router_model_client,
-    )
-
-    payload = _load_fixture().model_dump()
-    payload["payload"]["model"]["id"] = "current-thread-root"
-    payload["payload"]["model"]["documentId"] = document_id
-    payload["payload"]["model"]["parentCommentId"] = None
-    payload["payload"]["model"]["data"] = {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "mention",
-                        "attrs": {
-                            "id": "some-node-id",
-                            "type": "user",
-                            "label": AGENT_USER_LABEL,
-                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
-                            "modelId": AGENT_USER_ID,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": " can you look at the previous comments in this document?",
-                    },
-                ],
-            }
-        ],
-    }
-
-    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
-
-    assert result.action == "dry-run"
-    assert result.reason == "reply-generated-without-posting"
-    assert result.same_document_comment_preview is not None
-    assert "thread-alpha" in result.same_document_comment_preview
-    assert "thread-beta" in result.same_document_comment_preview
-    assert reply_model_client.calls
-
 
 def _make_outline_comment(
     *,

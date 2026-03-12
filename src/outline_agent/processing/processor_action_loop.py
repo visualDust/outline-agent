@@ -59,6 +59,8 @@ async def execute_action_plan(
     request: ActionPlanRequest,
 ) -> ActionPlanOutcome:
     comment_id = request.comment_id
+    workspace = request.workspace
+    document_workspace = request.document_workspace
     thread_workspace = request.thread_workspace
     collection = request.collection
     document = request.document
@@ -82,6 +84,8 @@ async def execute_action_plan(
     session = ActionLoopSession(
         settings=settings,
         outline_client=outline_client,
+        workspace=workspace,
+        document_workspace=document_workspace,
         thread_workspace=thread_workspace,
         comment_id=comment_id,
         document_id=document.id,
@@ -107,6 +111,8 @@ async def execute_action_plan(
             proposed_round = await _propose_action_round(
                 action_planner=action_planner,
                 available_tools=available_tools,
+                workspace=workspace,
+                document_workspace=document_workspace,
                 thread_workspace=thread_workspace,
                 collection=collection,
                 document=session.effective_document,
@@ -174,7 +180,7 @@ async def execute_action_plan(
         redundant_upload_paths = _find_redundant_upload_paths_for_unified_plan(
             proposal=proposal,
             uploaded_attachments=session.uploaded_attachments,
-            work_dir=thread_workspace.work_dir,
+            work_dir=workspace.workspace_dir,
         )
         if redundant_upload_paths:
             logger.debug(

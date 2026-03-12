@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from ..clients.model_client import ModelClient
 from ..clients.outline_client import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
+from ..core.prompt_registry import PromptRegistry
 from ..state.workspace import MEMORY_SECTION_HEADINGS, CollectionWorkspace
 from ..utils.json_utils import JsonExtractionError, extract_json_object
 
@@ -33,8 +34,6 @@ Rules:
 - If nothing should be saved, set should_write to false and entries to []
 - At most {max_entries} entries
 - Each entry must be short, concrete, and standalone
-- Prefer facts and decisions over generic notes
-- Avoid duplicating information already present in MEMORY.md
 """
 
 
@@ -50,9 +49,16 @@ class MemoryUpdateProposal(BaseModel):
 
 
 class CollectionMemoryManager:
-    def __init__(self, settings: AppSettings, model_client: ModelClient):
+    def __init__(
+        self,
+        settings: AppSettings,
+        model_client: ModelClient,
+        *,
+        prompt_registry: PromptRegistry | None = None,
+    ):
         self.settings = settings
         self.model_client = model_client
+        self.prompt_registry = prompt_registry or PromptRegistry.from_settings(settings)
 
     async def propose_update(
         self,
@@ -62,8 +68,11 @@ class CollectionMemoryManager:
         user_comment: str,
         assistant_reply: str,
     ) -> MemoryUpdateProposal:
-        system_prompt = MEMORY_UPDATE_SYSTEM_PROMPT.format(
-            max_entries=self.settings.memory_update_max_entries,
+        system_prompt = self.prompt_registry.compose_internal_prompt(
+            MEMORY_UPDATE_SYSTEM_PROMPT.format(
+                max_entries=self.settings.memory_update_max_entries,
+            ),
+            "memory_update_policy.md",
         )
         user_prompt = self._build_user_prompt(
             workspace=workspace,

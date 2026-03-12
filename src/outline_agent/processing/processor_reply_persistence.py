@@ -3,7 +3,7 @@ from __future__ import annotations
 from ..core.config import AppSettings
 from ..core.logging import logger
 from ..managers.memory_manager import CollectionMemoryManager
-from ..managers.thread_session_manager import ThreadSessionManager
+from ..managers.document_memory_manager import DocumentMemoryManager
 from .processor_context import (
     format_action_route_preview as _format_action_route_preview,
 )
@@ -58,31 +58,31 @@ async def maybe_update_memory(
     return manager.preview(proposal)
 
 
-async def maybe_update_thread_session(
+async def maybe_update_document_memory(
     *,
     settings: AppSettings,
-    manager: ThreadSessionManager,
+    manager: DocumentMemoryManager,
     prepared: PreparedRequest,
     thread_context: PreparedThreadContext,
     action_outcome: PreparedActionOutcome,
     reply: str,
 ) -> str | None:
-    if not settings.thread_session_update_enabled:
+    if not settings.document_memory_update_enabled:
         return None
     try:
         proposal = await manager.propose_update(
-            thread_workspace=prepared.thread_workspace,
+            document_workspace=prepared.document_workspace,
             collection=prepared.collection,
             document=action_outcome.effective_document,
             user_comment=thread_context.prompt_text,
             assistant_reply=reply,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Thread session update proposal failed: {}", exc)
-        return f"thread-session-update-error: {exc}"
+        logger.warning("Document memory update proposal failed: {}", exc)
+        return f"document-memory-update-error: {exc}"
 
     preview = manager.preview(proposal)
-    applied_preview = manager.apply_update(prepared.thread_workspace, proposal)
+    applied_preview = manager.apply_update(prepared.document_workspace, proposal)
     return applied_preview or preview
 
 
@@ -111,16 +111,16 @@ async def persist_workspace_updates(
     *,
     settings: AppSettings,
     memory_manager: CollectionMemoryManager,
-    thread_session_manager: ThreadSessionManager,
+    document_memory_manager: DocumentMemoryManager,
     prepared: PreparedRequest,
     thread_context: PreparedThreadContext,
     action_outcome: PreparedActionOutcome,
     reply: str,
     skip_memory_update: bool,
 ) -> ReplyPersistenceOutcome:
-    thread_session_update_preview = await maybe_update_thread_session(
+    document_memory_update_preview = await maybe_update_document_memory(
         settings=settings,
-        manager=thread_session_manager,
+        manager=document_memory_manager,
         prepared=prepared,
         thread_context=thread_context,
         action_outcome=action_outcome,
@@ -140,7 +140,7 @@ async def persist_workspace_updates(
     )
     return ReplyPersistenceOutcome(
         memory_update_preview=memory_update_preview,
-        thread_session_update_preview=thread_session_update_preview,
+        document_memory_update_preview=document_memory_update_preview,
     )
 
 
@@ -182,6 +182,7 @@ def build_processing_result(
         document_id=prepared.comment.documentId,
         collection_id=prepared.document.collection_id,
         collection_workspace=str(prepared.workspace.root_dir),
+        document_workspace=str(prepared.document_workspace.root_dir),
         thread_workspace=str(prepared.thread_workspace.root_dir),
         triggered_alias=prepared.triggered_alias,
         reply_preview=_preview(reply),
@@ -192,6 +193,6 @@ def build_processing_result(
         memory_action_preview=action_outcome.memory_action_preview,
         same_document_comment_preview=thread_context.same_document_comment_preview,
         memory_update_preview=persistence.memory_update_preview,
-        thread_session_update_preview=persistence.thread_session_update_preview,
+        document_memory_update_preview=persistence.document_memory_update_preview,
         handoff_preview=thread_context.handoff.preview if thread_context.handoff else None,
     )

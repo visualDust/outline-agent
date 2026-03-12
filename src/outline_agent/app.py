@@ -73,6 +73,8 @@ def healthz() -> dict[str, Any]:
         "mention_aliases": settings.mention_aliases,
         "workspace_root": str(settings.workspace_root),
         "system_prompt_path": str(settings.system_prompt_path),
+        "prompt_pack_dir": str(settings.prompt_pack_dir),
+        "internal_prompt_dir": str(settings.internal_prompt_dir),
         "document_update_enabled": settings.document_update_enabled,
         "document_update_model_ref": (
             settings.document_update_model_ref or settings.memory_model_ref or settings.model_ref
@@ -84,9 +86,9 @@ def healthz() -> dict[str, Any]:
         "tool_execution_chunk_size": settings.tool_execution_chunk_size,
         "memory_update_enabled": settings.memory_update_enabled,
         "memory_model_ref": settings.memory_model_ref or settings.model_ref,
-        "thread_session_update_enabled": settings.thread_session_update_enabled,
-        "thread_session_model_ref": (
-            settings.thread_session_model_ref or settings.memory_model_ref or settings.model_ref
+        "document_memory_update_enabled": settings.document_memory_update_enabled,
+        "document_memory_model_ref": (
+            settings.document_memory_model_ref or settings.memory_model_ref or settings.model_ref
         ),
         "reaction_enabled": settings.reaction_enabled,
         "reaction_processing_emoji": settings.reaction_processing_emoji,
@@ -137,7 +139,7 @@ async def outline_webhook(request: Request) -> JSONResponse:
     if not isinstance(event_name, str):
         raise HTTPException(status_code=400, detail="invalid webhook payload: missing event")
 
-    if event_name != "comments.create":
+    if event_name not in {"comments.create", "comments.update", "comments.delete"}:
         return JSONResponse(
             {
                 "ok": True,

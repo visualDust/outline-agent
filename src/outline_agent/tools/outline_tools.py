@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +53,7 @@ class DownloadAttachmentTool:
     def spec(self) -> ToolSpec:
         return ToolSpec(
             name="download_attachment",
-            description="Download an Outline attachment or attachment URL into the current thread workspace.",
+            description="Download an Outline attachment or attachment URL into the current collection workspace.",
             when_to_use="Use before reading or extracting content from an attachment.",
             input_schema={
                 "type": "object",
@@ -172,8 +173,8 @@ def _resolve_relative_path(work_dir: Path, value: str) -> Path:
     raw = value.strip().replace("\\", "/")
     if not raw:
         raise ToolError("path cannot be empty")
-    candidate = (work_dir / raw).resolve()
-    base = work_dir.resolve()
+    candidate = Path(os.path.normpath(str(work_dir / raw)))
+    base = Path(os.path.normpath(str(work_dir)))
     if candidate != base and base not in candidate.parents:
         raise ToolError(f"path escapes work dir: {value}")
     candidate.parent.mkdir(parents=True, exist_ok=True)

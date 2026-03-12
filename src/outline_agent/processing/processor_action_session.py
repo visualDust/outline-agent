@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from ..clients.outline_client import OutlineClient, OutlineDocument
 from ..core.config import AppSettings
 from ..runtime.tool_runtime import UploadedAttachment
-from ..state.workspace import ThreadWorkspace
+from ..state.workspace import CollectionWorkspace, DocumentWorkspace, ThreadWorkspace
 from .action_plan_results import (
     describe_action_result_for_progress as _describe_action_result_for_progress,
 )
@@ -40,6 +40,8 @@ from .processor_types import (
 class ActionLoopSession:
     settings: AppSettings
     outline_client: OutlineClient
+    workspace: CollectionWorkspace
+    document_workspace: DocumentWorkspace
     thread_workspace: ThreadWorkspace
     comment_id: str
     document_id: str

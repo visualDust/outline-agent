@@ -80,6 +80,7 @@ async def handle_comment(
         reply = await _generate_reply_text(
             settings=services.settings,
             model_client=services.model_client,
+            prompt_registry=services.prompt_registry,
             prompt_packs=services.prompt_packs,
             prepared=prepared,
             thread_context=thread_context,
@@ -90,7 +91,7 @@ async def handle_comment(
             store=services.store,
             outline_client=services.outline_client,
             memory_manager=services.memory_manager,
-            thread_session_manager=services.thread_session_manager,
+            document_memory_manager=services.document_memory_manager,
             prepared=prepared,
             thread_context=thread_context,
             action_outcome=action_outcome,

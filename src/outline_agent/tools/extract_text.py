@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import re
 import zlib
 from pathlib import Path
@@ -112,8 +113,8 @@ def _resolve_input_path(args: dict[str, Any], context: ToolContext) -> tuple[Pat
     if not isinstance(raw, str) or not raw.strip():
         raise ToolError("path is required")
     relative_path = raw.strip().replace("\\", "/")
-    path = (context.work_dir / relative_path).resolve()
-    base = context.work_dir.resolve()
+    path = Path(os.path.normpath(str(context.work_dir / relative_path)))
+    base = Path(os.path.normpath(str(context.work_dir)))
     if path != base and base not in path.parents:
         raise ToolError(f"path escapes work dir: {relative_path}")
     if not path.exists() or not path.is_file():

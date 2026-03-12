@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import warnings
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -160,7 +161,7 @@ class ToolRuntime:
             entries = _walk_relative_paths(target_dir, self.settings.tool_list_dir_max_entries)
         else:
             entries = _list_relative_children(target_dir, self.settings.tool_list_dir_max_entries)
-        rel_target = str(target_dir.relative_to(work_dir.resolve())) if target_dir != work_dir.resolve() else "."
+        rel_target = str(target_dir.relative_to(work_dir)) if target_dir != work_dir else "."
         preview = ", ".join(entries) if entries else "(empty)"
         return ToolStepResult(
             tool=step.tool,
@@ -177,7 +178,7 @@ class ToolRuntime:
             raise ToolRuntimeError(f"path is not a file: {step.path}")
 
         content = target_file.read_text(encoding="utf-8")
-        rel_path = str(target_file.relative_to(work_dir.resolve()))
+        rel_path = str(target_file.relative_to(work_dir))
         preview = _truncate_text(content, self.settings.tool_shell_max_output_chars)
         return ToolStepResult(
             tool=step.tool,
@@ -194,7 +195,7 @@ class ToolRuntime:
         mode = "a" if step.append else "w"
         with target_file.open(mode, encoding="utf-8") as handle:
             handle.write(content)
-        rel_path = str(target_file.relative_to(work_dir.resolve()))
+        rel_path = str(target_file.relative_to(work_dir))
         action = "append" if step.append else "write"
         return ToolStepResult(
             tool=step.tool,
@@ -218,7 +219,7 @@ class ToolRuntime:
 
         updated = original.replace(step.old_text, step.new_text, 1)
         target_file.write_text(updated, encoding="utf-8")
-        rel_path = str(target_file.relative_to(work_dir.resolve()))
+        rel_path = str(target_file.relative_to(work_dir))
         return ToolStepResult(
             tool=step.tool,
             ok=True,
@@ -236,7 +237,7 @@ class ToolRuntime:
 
         process = await asyncio.create_subprocess_shell(
             command,
-            cwd=str(work_dir.resolve()),
+            cwd=str(work_dir),
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -307,7 +308,7 @@ class ToolRuntime:
         attachment_id = attachment.get("id") if isinstance(attachment.get("id"), str) else None
         attachment_name = attachment.get("name") if isinstance(attachment.get("name"), str) else target_file.name
         attachment_url = attachment.get("url") if isinstance(attachment.get("url"), str) else None
-        rel_path = str(target_file.relative_to(work_dir.resolve()))
+        rel_path = str(target_file.relative_to(work_dir))
         suffix = f" -> attachment_id={attachment_id}" if attachment_id else " -> uploaded"
         return ToolStepResult(
             tool=step.tool,
@@ -333,7 +334,7 @@ class ToolRuntime:
         target_file = self._resolve_path(work_dir, step.path)
         target_file.parent.mkdir(parents=True, exist_ok=True)
         result = await self.outline_client.download_attachment(source_url, target_file)
-        rel_path = str(target_file.relative_to(work_dir.resolve()))
+        rel_path = str(target_file.relative_to(work_dir))
         size = result.get("size") if isinstance(result.get("size"), int) else None
         size_suffix = f" -> {size} bytes" if size is not None else ""
         return ToolStepResult(
@@ -348,8 +349,8 @@ class ToolRuntime:
         if not candidate_text:
             raise ToolRuntimeError("path is required")
 
-        root = work_dir.resolve()
-        candidate = (root / candidate_text).resolve()
+        root = Path(os.path.normpath(str(work_dir)))
+        candidate = Path(os.path.normpath(str(work_dir / candidate_text)))
         if candidate != root and root not in candidate.parents:
             raise ToolRuntimeError(f"path escapes work dir: {candidate_text}")
         return candidate

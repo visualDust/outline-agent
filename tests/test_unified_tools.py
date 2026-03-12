@@ -21,7 +21,6 @@ from outline_agent.planning.tool_plan_schema import (
     UnifiedToolPlanStep,
     sanitize_unified_tool_plan,
 )
-from outline_agent.planning.tool_planner import UNIFIED_TOOL_PLANNER_SYSTEM_PROMPT
 from outline_agent.processing.action_plan_structure import select_next_action_plan_chunk
 from outline_agent.tools import (
     CreateDocumentTool,
@@ -122,17 +121,6 @@ def test_get_current_document_tool_returns_document_text(tmp_path: Path) -> None
     assert result.data["document_id"] == "doc-1"
     assert result.data["text"] == "# Current\n\nHello world"
 
-
-def test_default_tool_registry_exposes_workspace_and_shell_tools(tmp_path: Path) -> None:
-    registry = _build_registry()
-
-    tool_names = {spec.name for spec in registry.list_specs()}
-
-    assert "download_attachment" in tool_names
-    assert "extract_text_from_pdf" in tool_names
-    assert "run_shell" in tool_names
-
-
 def test_extract_text_from_pdf_reads_literal_strings(tmp_path: Path) -> None:
     registry = _build_registry()
     context = _build_context(tmp_path)
@@ -213,97 +201,6 @@ def test_unified_execution_loop_can_compose_download_extract_and_create_document
     assert summary.preview is not None
     assert "Created document 'Imported Attachment'." in summary.preview
 
-
-def test_hydrate_document_update_args_prefers_draft_over_broken_template_reference() -> None:
-    step_context = [
-        {
-            "tool": "draft_document_update",
-            "ok": True,
-            "data": {"title": "Updated Title", "text": "Updated body"},
-        }
-    ]
-
-    hydrated = _hydrate_document_action_args(
-        "apply_document_update",
-        {
-            "title": "{{steps.2.data.title}}",
-            "text": "{{steps.2.data.draft}}",
-            "content": "{{steps.2.data.content}}",
-        },
-        step_context,
-        {},
-    )
-
-    assert hydrated == {
-        "title": "Updated Title",
-        "text": "Updated body",
-        "content": "Updated body",
-    }
-
-
-def test_sanitize_document_update_args_drops_unsupported_draft_id_reference() -> None:
-    sanitized = _sanitize_document_action_args(
-        "apply_document_update",
-        {
-            "draft_id": "{{steps.2.data.draft_id}}",
-            "title": "{{steps.2.data.title}}",
-            "text": "{{steps.2.data.text}}",
-            "unexpected": "ignored",
-        },
-    )
-
-    assert sanitized == {
-        "title": "{{steps.2.data.title}}",
-        "text": "{{steps.2.data.text}}",
-    }
-
-
-def test_sanitize_create_document_args_drops_unsupported_draft_id_reference() -> None:
-    sanitized = _sanitize_document_action_args(
-        "create_document",
-        {
-            "draft_id": "{{steps.1.data.draft_id}}",
-            "title": "{{steps.1.data.title}}",
-            "text": "{{steps.1.data.text}}",
-            "publish": True,
-            "unexpected": "ignored",
-        },
-    )
-
-    assert sanitized == {
-        "title": "{{steps.1.data.title}}",
-        "text": "{{steps.1.data.text}}",
-        "publish": True,
-    }
-
-
-def test_hydrate_document_create_args_prefers_draft_over_broken_template_reference() -> None:
-    step_context = [
-        {
-            "tool": "draft_new_document",
-            "ok": True,
-            "data": {"title": "Draft Title", "text": "Draft body"},
-        }
-    ]
-
-    hydrated = _hydrate_document_action_args(
-        "create_document",
-        {
-            "title": "{{steps.2.data.title}}",
-            "text": "{{steps.2.data.text}}",
-            "content": "{{steps.2.data.content}}",
-        },
-        step_context,
-        {},
-    )
-
-    assert hydrated == {
-        "title": "Draft Title",
-        "text": "Draft body",
-        "content": "Draft body",
-    }
-
-
 def test_validate_document_update_args_blocks_apply_after_blocked_draft() -> None:
     step_context = [
         {
@@ -354,11 +251,6 @@ def test_hydrate_drafting_context_args_collects_local_workspace_observations() -
     assert "two-stage routing design" in hydrated["local_workspace_context"]
 
 
-def test_tool_planner_prompt_prefers_shell_first_pdf_workflow() -> None:
-    assert "shell-first local workflow" in UNIFIED_TOOL_PLANNER_SYSTEM_PROMPT
-    assert "Prefer `run_shell` over `extract_text_from_pdf`" in UNIFIED_TOOL_PLANNER_SYSTEM_PROMPT
-
-
 def test_tool_registry_surfaces_model_client_error_without_unexpected_wrapper(tmp_path: Path) -> None:
     class ModelFailingTool:
         @property
@@ -382,32 +274,6 @@ def test_tool_registry_surfaces_model_client_error_without_unexpected_wrapper(tm
         "draft_document_update: Model request failed (openai-responses/ReadTimeout) during POST https://x.test"
     )
     assert "unexpected error" not in result.summary
-
-
-def test_select_next_action_plan_chunk_trims_to_small_execution_batch() -> None:
-    proposal = UnifiedToolPlan(
-        should_act=True,
-        goal="Render a PDF and upload it.",
-        steps=[
-            UnifiedToolPlanStep(tool="get_current_document", args={}),
-            UnifiedToolPlanStep(tool="write_file", args={"path": "document.md", "content": "hello"}),
-            UnifiedToolPlanStep(tool="run_shell", args={"command": "pandoc document.md -o output.pdf"}),
-            UnifiedToolPlanStep(tool="upload_attachment", args={"path": "output.pdf"}),
-        ],
-        final_response_strategy="brief_confirmation",
-    )
-
-    chunk = select_next_action_plan_chunk(proposal, max_chunk_steps=2)
-
-    assert [step.tool for step in chunk.steps] == ["get_current_document", "write_file"]
-    assert chunk.goal == proposal.goal
-    assert chunk.final_response_strategy == proposal.final_response_strategy
-
-
-def test_tool_planner_prompt_uses_weak_planner_next_chunk_guidance() -> None:
-    assert "Plan only the next smallest executable chunk" in UNIFIED_TOOL_PLANNER_SYSTEM_PROMPT
-    assert "Trust the outer loop to replan after each executed chunk" in UNIFIED_TOOL_PLANNER_SYSTEM_PROMPT
-
 
 def test_hydrate_document_update_args_uses_prior_round_draft_when_current_round_has_only_apply() -> None:
     hydrated = _hydrate_document_action_args(

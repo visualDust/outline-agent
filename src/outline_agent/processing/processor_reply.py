@@ -5,9 +5,10 @@ from ..clients.outline_client import OutlineClient, OutlineClientError
 from ..clients.outline_models import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
 from ..core.logging import logger
+from ..core.prompt_registry import PromptPack, PromptRegistry
 from ..managers.memory_action_manager import MemoryActionManager
 from ..managers.memory_manager import CollectionMemoryManager
-from ..managers.thread_session_manager import ThreadSessionManager
+from ..managers.document_memory_manager import DocumentMemoryManager
 from ..state.store import ProcessedEventStore
 from ..state.workspace import CollectionWorkspace
 from .processor_artifacts import (
@@ -15,9 +16,6 @@ from .processor_artifacts import (
 )
 from .processor_context import (
     generate_reply_with_optional_images as _generate_reply_with_optional_images,
-)
-from .processor_prompting import (
-    PromptPack,
 )
 from .processor_prompting import (
     build_system_prompt as _build_system_prompt,
@@ -126,6 +124,7 @@ async def generate_reply_text(
     *,
     settings: AppSettings,
     model_client: ModelClient,
+    prompt_registry: PromptRegistry,
     prompt_packs: list[PromptPack],
     prepared: PreparedRequest,
     thread_context: PreparedThreadContext,
@@ -134,7 +133,6 @@ async def generate_reply_text(
     system_prompt = _build_system_prompt(
         system_prompt=settings.system_prompt,
         workspace=prepared.workspace,
-        thread_workspace=prepared.thread_workspace,
         prompt_packs=prompt_packs,
         max_memory_chars=settings.max_memory_chars,
     )
@@ -143,9 +141,10 @@ async def generate_reply_text(
         document=action_outcome.effective_document,
         collection=prepared.collection,
         workspace=prepared.workspace,
+        document_workspace=prepared.document_workspace,
         thread_workspace=prepared.thread_workspace,
         prompt_text=thread_context.prompt_text,
-        context_comments=thread_context.context_comments,
+        comment_context=thread_context.comment_context,
         document_creation_context=action_outcome.document_creation_context,
         document_update_context=action_outcome.document_update_context,
         tool_execution_context=action_outcome.tool_execution_context,
@@ -154,8 +153,9 @@ async def generate_reply_text(
         related_documents_context=thread_context.related_documents_context,
         handoff=thread_context.handoff,
         current_comment_image_count=len(prepared.comment_image_inputs),
+        reply_policy_text=prompt_registry.load_user_optional("reply_policy.md"),
         max_document_chars=settings.max_document_chars,
-        max_thread_session_chars=settings.max_thread_session_chars,
+        max_document_memory_chars=settings.max_document_memory_chars,
         max_prompt_chars=settings.max_prompt_chars,
     )
     reply = await _generate_reply_with_optional_images(
@@ -174,7 +174,7 @@ async def persist_reply_and_build_result(
     store: ProcessedEventStore,
     outline_client: OutlineClient,
     memory_manager: CollectionMemoryManager,
-    thread_session_manager: ThreadSessionManager,
+    document_memory_manager: DocumentMemoryManager,
     prepared: PreparedRequest,
     thread_context: PreparedThreadContext,
     action_outcome: PreparedActionOutcome,
@@ -193,7 +193,7 @@ async def persist_reply_and_build_result(
         persistence = await _persist_workspace_updates(
             settings=settings,
             memory_manager=memory_manager,
-            thread_session_manager=thread_session_manager,
+            document_memory_manager=document_memory_manager,
             prepared=prepared,
             thread_context=thread_context,
             action_outcome=action_outcome,
@@ -257,7 +257,7 @@ async def persist_reply_and_build_result(
     persistence = await _persist_workspace_updates(
         settings=settings,
         memory_manager=memory_manager,
-        thread_session_manager=thread_session_manager,
+        document_memory_manager=document_memory_manager,
         prepared=prepared,
         thread_context=thread_context,
         action_outcome=action_outcome,

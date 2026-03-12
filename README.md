@@ -78,7 +78,7 @@ features:
   memory_updates: true
   document_updates: true
   tool_use: true
-  thread_sessions: true
+  document_memory: true
   reactions: true
   related_documents: true
   progress_comments: true
@@ -127,16 +127,50 @@ If the API key is invalid or expired, startup will fail clearly. If a long-runni
 
 ### Prompt overrides
 
-Packaged prompts live under `src/outline_agent/assets/prompts/`.
+Packaged prompts live under:
 
-User overrides can live under:
+```text
+src/outline_agent/assets/prompts/
+  user/
+    00_system.md
+    reply_policy.md
+    packs/
+      outline_style.md
+  internal/
+    action_router_policy.md
+    memory_action_policy.md
+    tool_planner_policy.md
+    document_update_policy.md
+    document_creation_policy.md
+    memory_update_policy.md
+    document_memory_update_policy.md
+```
+
+User-visible/style overrides can live under:
 
 ```text
 ~/.outline-agent/
   prompts/
-    00_system.md
-    packs/
-      outline_style.md
+    user/
+      00_system.md
+      reply_policy.md
+      packs/
+        outline_style.md
+```
+
+Maintainer-level internal prompt overrides can live under:
+
+```text
+~/.outline-agent/
+  prompts/
+    internal/
+      action_router_policy.md
+      memory_action_policy.md
+      tool_planner_policy.md
+      document_update_policy.md
+      document_creation_policy.md
+      memory_update_policy.md
+      document_memory_update_policy.md
 ```
 
 ## Run

@@ -8,21 +8,22 @@ from pydantic import BaseModel, Field
 from ..clients.model_client import ModelClient
 from ..clients.outline_client import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
-from ..state.workspace import ThreadWorkspace
-from ..utils.json_utils import JsonExtractionError, extract_json_object
+from ..core.logging import logger
+from ..core.prompt_registry import PromptRegistry
+from ..state.workspace import DocumentWorkspace
 
-THREAD_SESSION_UPDATE_SYSTEM_PROMPT = """You maintain durable thread-local SESSION.md state for an Outline agent.
+DOCUMENT_MEMORY_UPDATE_SYSTEM_PROMPT = """You maintain durable document-local MEMORY.md state for an Outline agent.
 
-Decide whether the thread SESSION.md should be updated based on the latest interaction.
-Keep the session useful for future follow-up turns in the same comment thread.
-Do NOT store raw transcripts, long verbatim excerpts, or sensitive information unless it is clearly necessary.
+Decide whether the document MEMORY.md should be updated based on the latest interaction.
+Keep the memory useful for future follow-up turns anywhere in the same document.
+Do NOT store raw transcripts, long verbatim excerpts, or thread-specific temporary details unless they are clearly useful across multiple threads in this document.
 
 Return strict JSON only with this schema:
 {{
   "should_write": true,
-  "summary": "short thread summary",
-  "open_questions": ["short unresolved question"],
-  "working_notes": ["short reusable thread note"]
+  "summary": "short document summary",
+  "open_questions": ["short unresolved document-level question"],
+  "working_notes": ["short reusable document-level note"]
 }}
 
 Rules:
@@ -30,61 +31,90 @@ Rules:
 - Keep the summary concise and standalone
 - At most {max_open_questions} open questions
 - At most {max_working_notes} working notes
-- Use open_questions only for unresolved asks or blockers still relevant
-- Working notes should be short reusable thread-local notes, not a transcript
-- Prefer replacing stale session text with a better distilled summary
 """
 
 
-class ThreadSessionUpdateProposal(BaseModel):
+class DocumentMemoryUpdateProposal(BaseModel):
     should_write: bool = False
     summary: str | None = None
     open_questions: list[str] = Field(default_factory=list)
     working_notes: list[str] = Field(default_factory=list)
 
 
-class ThreadSessionManager:
-    def __init__(self, settings: AppSettings, model_client: ModelClient):
+class DocumentMemoryManager:
+    def __init__(
+        self,
+        settings: AppSettings,
+        model_client: ModelClient,
+        *,
+        prompt_registry: PromptRegistry | None = None,
+    ):
         self.settings = settings
         self.model_client = model_client
+        self.prompt_registry = prompt_registry or PromptRegistry.from_settings(settings)
 
     async def propose_update(
         self,
         *,
-        thread_workspace: ThreadWorkspace,
+        document_workspace: DocumentWorkspace,
         collection: OutlineCollection | None,
         document: OutlineDocument,
         user_comment: str,
         assistant_reply: str,
-    ) -> ThreadSessionUpdateProposal:
-        system_prompt = THREAD_SESSION_UPDATE_SYSTEM_PROMPT.format(
-            max_open_questions=self.settings.thread_session_max_open_questions,
-            max_working_notes=self.settings.thread_session_max_working_notes,
+    ) -> DocumentMemoryUpdateProposal:
+        logger.debug(
+            "Proposing document memory update: document_id={}, document_title={}, workspace={}",
+            document.id,
+            document.title or "",
+            document_workspace.root_dir,
+        )
+        system_prompt = self.prompt_registry.compose_internal_prompt(
+            DOCUMENT_MEMORY_UPDATE_SYSTEM_PROMPT.format(
+                max_open_questions=self.settings.document_memory_max_open_questions,
+                max_working_notes=self.settings.document_memory_max_working_notes,
+            ),
+            "document_memory_update_policy.md",
         )
         user_prompt = self._build_user_prompt(
-            thread_workspace=thread_workspace,
+            document_workspace=document_workspace,
             collection=collection,
             document=document,
             user_comment=user_comment,
             assistant_reply=assistant_reply,
         )
         raw = await self.model_client.generate_reply(system_prompt, user_prompt)
-        try:
-            payload = extract_json_object(raw)
-        except JsonExtractionError:
-            return ThreadSessionUpdateProposal(should_write=False)
+        payload = _extract_json_object(raw)
+        if payload is None:
+            logger.debug(
+                "Document memory update returned non-JSON payload: document_id={}, raw_preview={}",
+                document.id,
+                _truncate(raw, 240),
+            )
+            return DocumentMemoryUpdateProposal(should_write=False)
+        proposal = DocumentMemoryUpdateProposal.model_validate(payload)
+        sanitized = self._sanitize(proposal)
+        logger.debug(
+            "Document memory proposal ready: document_id={}, should_write={}, open_questions={}, working_notes={}",
+            document.id,
+            sanitized.should_write,
+            len(sanitized.open_questions),
+            len(sanitized.working_notes),
+        )
+        return sanitized
 
-        proposal = ThreadSessionUpdateProposal.model_validate(payload)
-        return self._sanitize(proposal)
-
-    def apply_update(self, thread_workspace: ThreadWorkspace, proposal: ThreadSessionUpdateProposal) -> str | None:
+    def apply_update(self, document_workspace: DocumentWorkspace, proposal: DocumentMemoryUpdateProposal) -> str | None:
         if not proposal.should_write:
+            logger.debug(
+                "Skipping document memory write: document_id={}, workspace={}",
+                document_workspace.document_id,
+                document_workspace.root_dir,
+            )
             return None
 
-        text = thread_workspace.session_path.read_text(encoding="utf-8")
+        text = document_workspace.memory_path.read_text(encoding="utf-8")
         text = _replace_section(
             text=text,
-            heading="Session Summary",
+            heading="Summary",
             body_lines=[proposal.summary] if proposal.summary else [],
         )
         text = _replace_section(
@@ -97,13 +127,26 @@ class ThreadSessionManager:
             heading="Working Notes",
             body_lines=[f"- {item}" for item in proposal.working_notes],
         )
-        thread_workspace.session_path.write_text(_ensure_trailing_newline(text), encoding="utf-8")
-        return self.preview(proposal)
+        document_workspace.memory_path.write_text(_ensure_trailing_newline(text), encoding="utf-8")
+        current_state = document_workspace.read_state()
+        document_workspace.write_state(
+            {
+                "document_id": document_workspace.document_id,
+                "document_title": current_state.get("document_title"),
+            }
+        )
+        preview = self.preview(proposal)
+        logger.debug(
+            "Applied document memory update: document_id={}, workspace={}, preview={}",
+            document_workspace.document_id,
+            document_workspace.root_dir,
+            preview or "",
+        )
+        return preview
 
-    def preview(self, proposal: ThreadSessionUpdateProposal) -> str | None:
+    def preview(self, proposal: DocumentMemoryUpdateProposal) -> str | None:
         if not proposal.should_write:
             return None
-
         parts: list[str] = []
         if proposal.summary:
             parts.append(f"summary={proposal.summary}")
@@ -116,31 +159,25 @@ class ThreadSessionManager:
     def _build_user_prompt(
         self,
         *,
-        thread_workspace: ThreadWorkspace,
+        document_workspace: DocumentWorkspace,
         collection: OutlineCollection | None,
         document: OutlineDocument,
         user_comment: str,
         assistant_reply: str,
     ) -> str:
         collection_name = collection.name if collection and collection.name else document.collection_id or "(unknown)"
-        session_excerpt = _truncate(
-            thread_workspace.session_path.read_text(encoding="utf-8"),
-            self.settings.max_thread_session_chars,
-        )
-        state_excerpt = _truncate(
-            json.dumps(thread_workspace.read_state(), ensure_ascii=False, indent=2),
-            self.settings.max_thread_session_chars,
+        memory_excerpt = _truncate(
+            document_workspace.memory_path.read_text(encoding="utf-8"),
+            self.settings.max_document_memory_chars,
         )
         document_excerpt = _truncate(document.text or "", self.settings.max_document_chars)
         return (
             f"Collection: {collection_name}\n"
             f"Collection ID: {document.collection_id or '(unknown)'}\n"
-            f"Thread ID: {thread_workspace.thread_id}\n"
+            f"Document ID: {document.id}\n"
             f"Document title: {document.title or '(unknown)'}\n\n"
-            "Current SESSION.md excerpt:\n"
-            f"{session_excerpt}\n\n"
-            "Current state.json excerpt:\n"
-            f"{state_excerpt}\n\n"
+            "Current document MEMORY.md excerpt:\n"
+            f"{memory_excerpt}\n\n"
             "Document excerpt:\n"
             f"{document_excerpt or '(document text unavailable)'}\n\n"
             "Latest user comment:\n"
@@ -149,29 +186,40 @@ class ThreadSessionManager:
             f"{_truncate(assistant_reply, self.settings.max_prompt_chars)}"
         )
 
-    def _sanitize(self, proposal: ThreadSessionUpdateProposal) -> ThreadSessionUpdateProposal:
+    def _sanitize(self, proposal: DocumentMemoryUpdateProposal) -> DocumentMemoryUpdateProposal:
         summary = _normalize_text(proposal.summary or "")
         if summary:
-            summary = _truncate(summary, self.settings.thread_session_summary_max_chars)
+            summary = _truncate(summary, self.settings.document_memory_summary_max_chars)
 
         open_questions = _normalize_unique_items(
             proposal.open_questions,
-            limit=self.settings.thread_session_max_open_questions,
-            item_max_chars=self.settings.thread_session_item_max_chars,
+            limit=self.settings.document_memory_max_open_questions,
+            item_max_chars=self.settings.document_memory_item_max_chars,
         )
         working_notes = _normalize_unique_items(
             proposal.working_notes,
-            limit=self.settings.thread_session_max_working_notes,
-            item_max_chars=self.settings.thread_session_item_max_chars,
+            limit=self.settings.document_memory_max_working_notes,
+            item_max_chars=self.settings.document_memory_item_max_chars,
         )
 
         should_write = proposal.should_write and bool(summary or open_questions or working_notes)
-        return ThreadSessionUpdateProposal(
+        return DocumentMemoryUpdateProposal(
             should_write=should_write,
             summary=summary or None,
             open_questions=open_questions,
             working_notes=working_notes,
         )
+
+
+def _extract_json_object(raw: str) -> dict[str, object] | None:
+    match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _replace_section(text: str, heading: str, body_lines: list[str]) -> str:
@@ -192,7 +240,6 @@ def _replace_section(text: str, heading: str, body_lines: list[str]) -> str:
     replacement = [marker]
     replacement.extend(body_lines)
     replacement.append("")
-
     return "\n".join(lines[:start_index] + replacement + lines[end_index:]).rstrip() + "\n"
 
 

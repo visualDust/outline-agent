@@ -71,12 +71,14 @@ async def generate_reply_with_optional_images(
 async def prepare_comment_image_inputs(
     *,
     outline_client: OutlineClient,
+    workspace: CollectionWorkspace,
     thread_workspace: ThreadWorkspace,
     comment_id: str,
     image_sources: list[str],
 ) -> list[ModelInputImage]:
     image_inputs: list[ModelInputImage] = []
-    image_dir = thread_workspace.work_dir / "comment_images"
+    del thread_workspace
+    image_dir = workspace.workspace_dir / "comment_images"
     image_dir.mkdir(parents=True, exist_ok=True)
 
     for index, source in enumerate(image_sources[:4], start=1):
@@ -226,6 +228,12 @@ def resolve_cross_thread_handoff(
         document_id=document.id,
         exclude_thread_id=thread_workspace.thread_id,
     )
+    logger.debug(
+        "Cross-thread handoff candidates resolved: document_id={}, current_thread_id={}, candidate_count={}",
+        document.id,
+        thread_workspace.thread_id,
+        len(candidates),
+    )
     if not candidates:
         return None
 
@@ -233,6 +241,13 @@ def resolve_cross_thread_handoff(
         prompt_text,
         candidates,
         limit=settings.cross_thread_handoff_candidate_limit,
+    )
+    logger.debug(
+        "Cross-thread handoff selection: document_id={}, current_thread_id={}, selected_thread_id={}, alternative_count={}",
+        document.id,
+        thread_workspace.thread_id,
+        selected.get("thread_id") if selected else None,
+        len(alternatives),
     )
     if selected is not None:
         participants = selected.get("participants") or []

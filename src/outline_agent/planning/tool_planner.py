@@ -3,8 +3,9 @@ from __future__ import annotations
 from ..clients.model_client import ModelClient, ModelInputImage
 from ..clients.outline_models import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
+from ..core.prompt_registry import PromptRegistry
 from ..runtime.tool_runtime import describe_work_dir
-from ..state.workspace import ThreadWorkspace
+from ..state.workspace import CollectionWorkspace, DocumentWorkspace, ThreadWorkspace
 from ..tools import ToolSpec
 from ..utils.attachment_context import AttachmentContextItem, format_attachment_context_for_prompt
 from ..utils.json_utils import JsonExtractionError, extract_json_object
@@ -26,13 +27,9 @@ Return strict JSON only with this schema:
 
 Rules:
 - Prefer no action when a normal text reply is enough
-- Plan only the next smallest executable chunk, not the whole workflow
-- Prefer 1 step; use 2 steps only when the second directly follows from the first
-- Trust the outer loop to replan after each executed chunk
 - Use only the provided tool names
 - Keep the plan within the stated step budget
 - Use relative paths only for workspace paths
-- Prefer read steps before write steps unless a direct write is clearly needed
 - Use `draft_document_update` before `apply_document_update`
 - Use `draft_new_document` before `create_document` when drafting from the current request and document context
 - `apply_document_update` only needs `title`, `text`, or `content`; never use or reference `draft_id`
@@ -40,39 +37,33 @@ Rules:
   plus optional `collection_id`, `parent_document_id`, `publish`;
   never use or reference `draft_id`
 - After a successful draft step, you may omit document fields and let the executor auto-fill them from the latest draft
-- Use `download_attachment` before local extraction tools when the source is an Outline attachment
-- For `download_attachment`, always provide both `path` and `source_url`/`attachment_url`
-- When attachment candidates are provided in the prompt, copy their `source_url`
-  and suggested `path` exactly instead of inventing values
-- For PDF or attachment analysis tasks, prefer a shell-first local workflow:
-  `download_attachment` -> `run_shell` -> `read_file`/local inspection -> document write/update
-- Prefer `run_shell` over `extract_text_from_pdf` when the task depends on reliable PDF extraction,
-  multi-step fallback, or format conversion; treat `extract_text_from_pdf` as a best-effort shortcut
-- Do not draft or apply a document update until you have enough reliable attachment content
-  available from local files or prior tool observations
-- Use `upload_attachment` only after the file already exists in the thread work dir
-- Do not upload the same file more than once in the same turn unless the file was changed afterwards
-- Do not repeat the same inspection-only plan if no later step changed workspace or document state
-- Use template references like {{steps.1.data.text}} only when a later step needs an earlier result
-- Do not invent unavailable files, IDs, URLs, or command output
-- If prior rounds failed, inspect the observed error details and choose
-  the smallest useful recovery step or fallback plan
-- When a shell or file step fails, use the observed exit code, stdout,
-  stderr, and work dir state to decide the next step
-- Do not give up immediately after one failed step if the observed failure suggests a concrete recovery or fallback path
-- Use structured workspace observations from prior rounds to see which files or artifacts now exist before replanning
 """
 
 
 class UnifiedToolPlanner:
-    def __init__(self, settings: AppSettings, model_client: ModelClient):
+    def __init__(
+        self,
+        settings: AppSettings,
+        model_client: ModelClient,
+        *,
+        prompt_registry: PromptRegistry | None = None,
+    ):
         self.settings = settings
         self.model_client = model_client
+        self.prompt_registry = prompt_registry or PromptRegistry.from_settings(settings)
+
+    def build_system_prompt(self) -> str:
+        return self.prompt_registry.compose_internal_prompt(
+            UNIFIED_TOOL_PLANNER_SYSTEM_PROMPT,
+            "tool_planner_policy.md",
+        )
 
     async def propose_plan(
         self,
         *,
         available_tools: list[ToolSpec],
+        workspace: CollectionWorkspace,
+        document_workspace: DocumentWorkspace,
         thread_workspace: ThreadWorkspace,
         collection: OutlineCollection | None,
         document: OutlineDocument,
@@ -88,6 +79,8 @@ class UnifiedToolPlanner:
     ) -> UnifiedToolPlan:
         user_prompt = self._build_user_prompt(
             available_tools=available_tools,
+            workspace=workspace,
+            document_workspace=document_workspace,
             thread_workspace=thread_workspace,
             collection=collection,
             document=document,
@@ -101,7 +94,7 @@ class UnifiedToolPlanner:
             current_comment_image_count=current_comment_image_count,
         )
         raw = await self._generate_with_optional_images(
-            UNIFIED_TOOL_PLANNER_SYSTEM_PROMPT,
+            self.build_system_prompt(),
             user_prompt,
             input_images=input_images or [],
         )
@@ -154,6 +147,8 @@ class UnifiedToolPlanner:
         self,
         *,
         available_tools: list[ToolSpec],
+        workspace: CollectionWorkspace,
+        document_workspace: DocumentWorkspace,
         thread_workspace: ThreadWorkspace,
         collection: OutlineCollection | None,
         document: OutlineDocument,
@@ -167,13 +162,13 @@ class UnifiedToolPlanner:
         current_comment_image_count: int,
     ) -> str:
         collection_name = collection.name if collection and collection.name else document.collection_id or "(unknown)"
-        thread_context = _truncate(
-            thread_workspace.load_prompt_context(self.settings.max_thread_session_chars),
-            self.settings.max_thread_session_chars,
+        document_memory = _truncate(
+            document_workspace.load_prompt_context(self.settings.max_document_memory_chars),
+            self.settings.max_document_memory_chars,
         )
         document_excerpt = _truncate(document.text or "", self.settings.max_document_chars)
         work_dir_snapshot = describe_work_dir(
-            thread_workspace.work_dir,
+            workspace.workspace_dir,
             max_entries=self.settings.tool_list_dir_max_entries,
         )
         prior_rounds_section = _format_prior_rounds(prior_round_summaries)
@@ -202,15 +197,16 @@ class UnifiedToolPlanner:
             f"Document Title: {document.title or '(unknown)'}\n"
             f"Current Outline document ID: {document.id}\n"
             f"Thread ID: {thread_workspace.thread_id}\n"
+            f"Document workspace: {document_workspace.root_dir}\n"
             f"Thread workspace: {thread_workspace.root_dir}\n"
-            f"Thread work dir: {thread_workspace.work_dir}\n\n"
+            f"Collection work dir: {workspace.workspace_dir}\n\n"
             f"Current planning round: {current_round} of {self.settings.tool_execution_max_rounds}\n\n"
             f"Planner step budget: {self.settings.tool_execution_max_steps}\n"
             f"Execution chunk size: {self.settings.tool_execution_chunk_size}\n\n"
             "Available tools:\n"
             f"{tool_catalog}\n\n"
-            "Persisted thread context:\n"
-            f"{thread_context or '(no thread context)'}\n\n"
+            "Persisted document memory:\n"
+            f"{document_memory or '(no document memory)'}\n\n"
             "Action execution history in this turn:\n"
             f"{prior_rounds_section}\n\n"
             "Structured observations from prior rounds:\n"

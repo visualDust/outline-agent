@@ -6,17 +6,10 @@ from loguru import logger
 
 from .config import AppSettings
 
-_LOGGING_CONFIGURED = False
-
-
 def configure_logging(settings: AppSettings) -> None:
-    global _LOGGING_CONFIGURED
-    if _LOGGING_CONFIGURED:
-        return
-
     logger.remove()
     logger.add(
-        sys.stderr,
+        sys.__stderr__,
         level=settings.log_level.upper(),
         enqueue=False,
         backtrace=False,
@@ -32,7 +25,6 @@ def configure_logging(settings: AppSettings) -> None:
         diagnose=False,
         encoding="utf-8",
     )
-    _LOGGING_CONFIGURED = True
 
 
 __all__ = ["configure_logging", "logger"]

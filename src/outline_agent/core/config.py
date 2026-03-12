@@ -58,13 +58,16 @@ model_profiles:
 prompts:
   system_prompt_packs:
     - outline_style
+  # system_prompt_path: prompts/user/00_system.md
+  # prompt_pack_dir: prompts/user/packs
+  # internal_prompt_dir: prompts/internal
 
 features:
   memory_actions: true
   memory_updates: true
   document_updates: true
   tool_use: true
-  thread_sessions: true
+  document_memory: true
   reactions: true
   related_documents: true
   progress_comments: true
@@ -103,26 +106,61 @@ def get_config_root() -> Path:
     return get_user_config_path().parent
 
 
+def get_package_user_prompt_root() -> Path:
+    return PACKAGE_PROMPT_ROOT / "user"
+
+
 def get_package_prompt_path() -> Path:
-    return PACKAGE_PROMPT_ROOT / "00_system.md"
+    return get_package_user_prompt_root() / "00_system.md"
 
 
 def get_package_prompt_pack_dir() -> Path:
-    return PACKAGE_PROMPT_ROOT / "packs"
+    return get_package_user_prompt_root() / "packs"
+
+
+def get_package_internal_prompt_dir() -> Path:
+    return PACKAGE_PROMPT_ROOT / "internal"
+
+
+def get_project_prompt_root() -> Path:
+    return PROJECT_ROOT / "prompts"
+
+
+def _first_existing_path(candidates: list[Path], *, fallback: Path) -> Path:
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return fallback
 
 
 def default_system_prompt_path() -> Path:
-    user_path = get_config_root() / "prompts/00_system.md"
-    if user_path.exists():
-        return user_path
-    return get_package_prompt_path()
+    return _first_existing_path(
+        [
+            get_config_root() / "prompts/user/00_system.md",
+            get_project_prompt_root() / "user/00_system.md",
+        ],
+        fallback=get_package_prompt_path(),
+    )
 
 
 def default_prompt_pack_dir() -> Path:
-    user_path = get_config_root() / "prompts/packs"
-    if user_path.exists():
-        return user_path
-    return get_package_prompt_pack_dir()
+    return _first_existing_path(
+        [
+            get_config_root() / "prompts/user/packs",
+            get_project_prompt_root() / "user/packs",
+        ],
+        fallback=get_package_prompt_pack_dir(),
+    )
+
+
+def default_internal_prompt_dir() -> Path:
+    return _first_existing_path(
+        [
+            get_config_root() / "prompts/internal",
+            get_project_prompt_root() / "internal",
+        ],
+        fallback=get_package_internal_prompt_dir(),
+    )
 
 
 def default_workspace_root() -> Path:
@@ -151,6 +189,7 @@ _RUNTIME_PATH_FIELDS = {
 _RESOURCE_PATH_FIELDS = {
     "system_prompt_path",
     "prompt_pack_dir",
+    "internal_prompt_dir",
 }
 
 _GROUPED_CONFIG_FIELDS = {
@@ -177,7 +216,7 @@ _GROUPED_CONFIG_FIELDS = {
         "memory_ref": "memory_model_ref",
         "document_update_ref": "document_update_model_ref",
         "tool_ref": "tool_model_ref",
-        "thread_session_ref": "thread_session_model_ref",
+        "document_memory_ref": "document_memory_model_ref",
         "timeout_seconds": "model_timeout_seconds",
         "max_output_tokens": "max_output_tokens",
     },
@@ -185,6 +224,7 @@ _GROUPED_CONFIG_FIELDS = {
         "system_prompt_path": "system_prompt_path",
         "system_prompt": "system_prompt",
         "prompt_pack_dir": "prompt_pack_dir",
+        "internal_prompt_dir": "internal_prompt_dir",
         "system_prompt_packs": "system_prompt_packs",
     },
     "features": {
@@ -192,7 +232,7 @@ _GROUPED_CONFIG_FIELDS = {
         "memory_updates": "memory_update_enabled",
         "document_updates": "document_update_enabled",
         "tool_use": "tool_use_enabled",
-        "thread_sessions": "thread_session_update_enabled",
+        "document_memory": "document_memory_update_enabled",
         "reactions": "reaction_enabled",
         "related_documents": "related_documents_enabled",
         "same_document_comments": "same_document_comment_lookup_enabled",
@@ -294,8 +334,11 @@ class AppSettings(BaseSettings):
     max_prompt_chars: int = 8000
     max_document_chars: int = 5000
     max_memory_chars: int = 3000
-    max_thread_session_chars: int = 2000
+    max_full_thread_chars: int = 12000
+    max_document_memory_chars: int = 2000
     max_context_comments: int = 8
+    thread_tail_comments: int = 10
+    thread_summary_max_chars: int = 2000
     comment_list_limit: int = 25
     thread_recent_comments: int = 8
     thread_comment_max_chars: int = 280
@@ -304,18 +347,19 @@ class AppSettings(BaseSettings):
     thread_turn_max_chars: int = 280
     memory_update_max_entries: int = 3
     memory_update_entry_max_chars: int = 180
-    thread_session_update_enabled: bool = True
-    thread_session_model_ref: str | None = None
-    thread_session_summary_max_chars: int = 320
-    thread_session_item_max_chars: int = 180
-    thread_session_max_open_questions: int = 4
-    thread_session_max_working_notes: int = 4
+    document_memory_update_enabled: bool = True
+    document_memory_model_ref: str | None = None
+    document_memory_summary_max_chars: int = 320
+    document_memory_item_max_chars: int = 180
+    document_memory_max_open_questions: int = 4
+    document_memory_max_working_notes: int = 4
     reaction_enabled: bool = True
     reaction_processing_emoji: str = "👀"
     reaction_done_emoji: str = "👍"
     system_prompt_path: Path = Field(default_factory=default_system_prompt_path)
     system_prompt: str = ""
     prompt_pack_dir: Path = Field(default_factory=default_prompt_pack_dir)
+    internal_prompt_dir: Path = Field(default_factory=default_internal_prompt_dir)
     system_prompt_packs: list[str] = Field(
         default_factory=lambda: ["outline_style"],
         validation_alias=AliasChoices("SYSTEM_PROMPT_PACKS", "system_prompt_packs"),
@@ -358,6 +402,7 @@ class AppSettings(BaseSettings):
     @field_validator(
         "system_prompt_path",
         "prompt_pack_dir",
+        "internal_prompt_dir",
         "workspace_root",
         "webhook_log_dir",
         "dedupe_store_path",

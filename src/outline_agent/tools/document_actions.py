@@ -5,15 +5,22 @@ from typing import Any
 from ..clients.model_client import ModelClient, ModelInputImage
 from ..clients.outline_models import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
+from ..core.prompt_registry import PromptRegistry
 from ..managers.document_creation_manager import DocumentCreationManager
 from ..managers.document_update_manager import DocumentUpdateManager
-from ..state.workspace import ThreadWorkspace
+from ..state.workspace import DocumentWorkspace, ThreadWorkspace
 from .base import ToolContext, ToolError, ToolResult, ToolSpec
 
 
 class DraftDocumentUpdateTool:
-    def __init__(self, settings: AppSettings, model_client: ModelClient):
-        self.manager = DocumentUpdateManager(settings, model_client)
+    def __init__(
+        self,
+        settings: AppSettings,
+        model_client: ModelClient,
+        *,
+        prompt_registry: PromptRegistry | None = None,
+    ):
+        self.manager = DocumentUpdateManager(settings, model_client, prompt_registry=prompt_registry)
 
     @property
     def spec(self) -> ToolSpec:
@@ -47,8 +54,9 @@ class DraftDocumentUpdateTool:
         )
 
     async def run(self, args: dict[str, Any], context: ToolContext) -> ToolResult:
-        thread_workspace, collection, document = _require_document_context(context)
+        document_workspace, thread_workspace, collection, document = _require_document_context(context)
         proposal = await self.manager.propose_update(
+            document_workspace=document_workspace,
             thread_workspace=thread_workspace,
             collection=collection,
             document=document,
@@ -112,7 +120,7 @@ class ApplyDocumentUpdateTool:
     async def run(self, args: dict[str, Any], context: ToolContext) -> ToolResult:
         if context.outline_client is None:
             raise ToolError("apply_document_update requires an Outline client")
-        _, _, document = _require_document_context(context)
+        _, _, _, document = _require_document_context(context)
         title = _get_text_arg(args, "title")
         text = _get_text_arg(args, "text") or _get_text_arg(args, "content")
         if title is None and text is None:
@@ -128,8 +136,14 @@ class ApplyDocumentUpdateTool:
 
 
 class DraftNewDocumentTool:
-    def __init__(self, settings: AppSettings, model_client: ModelClient):
-        self.manager = DocumentCreationManager(settings, model_client)
+    def __init__(
+        self,
+        settings: AppSettings,
+        model_client: ModelClient,
+        *,
+        prompt_registry: PromptRegistry | None = None,
+    ):
+        self.manager = DocumentCreationManager(settings, model_client, prompt_registry=prompt_registry)
 
     @property
     def spec(self) -> ToolSpec:
@@ -162,8 +176,9 @@ class DraftNewDocumentTool:
         )
 
     async def run(self, args: dict[str, Any], context: ToolContext) -> ToolResult:
-        thread_workspace, collection, document = _require_document_context(context)
+        document_workspace, thread_workspace, collection, document = _require_document_context(context)
         proposal = await self.manager.propose_create(
+            document_workspace=document_workspace,
             thread_workspace=thread_workspace,
             collection=collection,
             document=document,
@@ -199,7 +214,10 @@ class DraftNewDocumentTool:
 
 def _require_document_context(
     context: ToolContext,
-) -> tuple[ThreadWorkspace, OutlineCollection | None, OutlineDocument]:
+) -> tuple[DocumentWorkspace, ThreadWorkspace, OutlineCollection | None, OutlineDocument]:
+    document_workspace = context.extra.get("document_workspace")
+    if not isinstance(document_workspace, DocumentWorkspace):
+        raise ToolError("document drafting tools require document_workspace in context.extra")
     thread_workspace = context.extra.get("thread_workspace")
     if not isinstance(thread_workspace, ThreadWorkspace):
         raise ToolError("document drafting tools require thread_workspace in context.extra")
@@ -210,7 +228,7 @@ def _require_document_context(
         collection = context.collection
     else:
         collection = None
-    return thread_workspace, collection, document
+    return document_workspace, thread_workspace, collection, document
 
 
 def _get_user_comment(args: dict[str, Any], context: ToolContext) -> str:

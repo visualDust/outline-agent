@@ -32,13 +32,16 @@ model_profiles:
 prompts:
   system_prompt_packs:
     - outline_style
+  # system_prompt_path: prompts/user/00_system.md
+  # prompt_pack_dir: prompts/user/packs
+  # internal_prompt_dir: prompts/internal
 
 features:
   memory_actions: true
   memory_updates: true
   document_updates: true
   tool_use: true
-  thread_sessions: true
+  document_memory: true
   reactions: true
   related_documents: true
   progress_comments: true

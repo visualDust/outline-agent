@@ -7,7 +7,7 @@ from ..clients.outline_client import OutlineCollection, OutlineComment, OutlineD
 from ..managers.action_router_manager import ActionRoutingDecision
 from ..models.webhook_models import CommentModel
 from ..runtime.tool_runtime import UploadedAttachment
-from ..state.workspace import CollectionWorkspace, ThreadWorkspace
+from ..state.workspace import CollectionWorkspace, DocumentWorkspace, ThreadWorkspace
 from ..utils.attachment_context import AttachmentContextItem
 from ..utils.rich_text import MentionRef
 
@@ -20,6 +20,7 @@ class ProcessingResult:
     document_id: str | None = None
     collection_id: str | None = None
     collection_workspace: str | None = None
+    document_workspace: str | None = None
     thread_workspace: str | None = None
     triggered_alias: str | None = None
     reply_preview: str | None = None
@@ -30,7 +31,7 @@ class ProcessingResult:
     memory_action_preview: str | None = None
     same_document_comment_preview: str | None = None
     memory_update_preview: str | None = None
-    thread_session_update_preview: str | None = None
+    document_memory_update_preview: str | None = None
     handoff_preview: str | None = None
 
     def as_dict(self) -> dict[str, str | None]:
@@ -41,6 +42,7 @@ class ProcessingResult:
             "document_id": self.document_id,
             "collection_id": self.collection_id,
             "collection_workspace": self.collection_workspace,
+            "document_workspace": self.document_workspace,
             "thread_workspace": self.thread_workspace,
             "triggered_alias": self.triggered_alias,
             "reply_preview": self.reply_preview,
@@ -51,7 +53,7 @@ class ProcessingResult:
             "memory_action_preview": self.memory_action_preview,
             "same_document_comment_preview": self.same_document_comment_preview,
             "memory_update_preview": self.memory_update_preview,
-            "thread_session_update_preview": self.thread_session_update_preview,
+            "document_memory_update_preview": self.document_memory_update_preview,
             "handoff_preview": self.handoff_preview,
         }
 
@@ -91,11 +93,15 @@ class ArtifactRegistrationResult:
 @dataclass
 class PreparedRequest:
     semantic_key: str
+    event: str
     comment: CommentModel
     document: OutlineDocument
     collection: OutlineCollection | None
     workspace: CollectionWorkspace
+    document_workspace: DocumentWorkspace
     thread_workspace: ThreadWorkspace
+    document_comments: list[OutlineComment]
+    thread_comments: list[OutlineComment]
     comment_text: str
     comment_image_sources: list[str]
     comment_image_inputs: list[ModelInputImage]
@@ -122,6 +128,8 @@ class PreparedThreadContext:
 @dataclass(slots=True)
 class ActionPlanRequest:
     comment_id: str
+    workspace: CollectionWorkspace
+    document_workspace: DocumentWorkspace
     thread_workspace: ThreadWorkspace
     collection: OutlineCollection | None
     document: OutlineDocument
@@ -177,4 +185,4 @@ class PreparedActionOutcome:
 @dataclass
 class ReplyPersistenceOutcome:
     memory_update_preview: str | None
-    thread_session_update_preview: str | None
+    document_memory_update_preview: str | None

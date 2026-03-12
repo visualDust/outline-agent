@@ -6,8 +6,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..core.logging import logger
+from .thread_transcript import active_comments as _active_transcript_comments
+from .thread_transcript import build_deleted_thread_transcript as _build_deleted_thread_transcript
+from .thread_transcript import build_thread_transcript as _build_thread_transcript
+from .thread_transcript import load_json_text as _load_transcript_json_text
+from .thread_transcript import render_comments_for_prompt as _render_comments_for_prompt
+from .thread_transcript import summarize_comments_for_prompt as _summarize_comments_for_prompt
+from .thread_transcript import to_json_text as _transcript_to_json_text
+from .thread_transcript import transcript_comment_count as _transcript_comment_count
+from .thread_transcript import transcript_root_exists as _transcript_root_exists
 from .thread_state import build_initial_thread_state, build_thread_state_payload
-from .thread_state import extract_section_text as _extract_section_text
 from .thread_state import format_thread_state_for_prompt as _format_thread_state_for_prompt
 from .thread_state import normalize_participants as _normalize_participants
 from .thread_state import normalize_progress_comment_map as _normalize_progress_comment_map
@@ -59,28 +68,20 @@ This file stores durable collection-specific context for the Outline agent.
 - {created_note}: Workspace initialized automatically.
 """
 
-INITIAL_THREAD_SESSION_TEMPLATE = """# SESSION.md - Thread Session State
+INITIAL_DOCUMENT_MEMORY_TEMPLATE = """# MEMORY.md - Document Working Memory
 
-This file stores durable thread-local state for a comment thread in this collection.
+This file stores durable document-local context for the Outline agent.
 
-## Thread Profile
-- Thread ID: {thread_id}
-- Root Comment ID: {thread_id}
+## Document Profile
 - Document ID: {document_id}
 - Document Title: {document_title}
 
-## Session Summary
+## Summary
 
 ## Open Questions
 
 ## Working Notes
-- {created_note}: Thread session initialized automatically.
-"""
-
-INITIAL_TASK_PROMPT_TEMPLATE = """# PROMPT.md - Thread Task Prompt
-
-Optional task-specific instructions for this comment thread.
-Use this file to pin goals, constraints, or required output formats.
+- {created_note}: Document memory initialized automatically.
 """
 
 MEMORY_SECTION_HEADINGS = {
@@ -89,8 +90,8 @@ MEMORY_SECTION_HEADINGS = {
     "notes": "Working Notes",
 }
 
-THREAD_SESSION_SECTION_HEADINGS = (
-    "Session Summary",
+DOCUMENT_MEMORY_SECTION_HEADINGS = (
+    "Summary",
     "Open Questions",
     "Working Notes",
 )
@@ -102,8 +103,13 @@ class CollectionWorkspace:
     collection_name: str
     root_dir: Path
     memory_dir: Path
+    workspace_dir: Path
+    attachments_dir: Path
+    generated_dir: Path
     scratch_dir: Path
+    documents_dir: Path
     threads_dir: Path
+    archived_threads_dir: Path
     system_prompt_path: Path
     memory_path: Path
 
@@ -125,24 +131,20 @@ class CollectionWorkspace:
 
 
 @dataclass(frozen=True)
-class ThreadWorkspace:
-    thread_id: str
+class DocumentWorkspace:
+    document_id: str
     root_dir: Path
-    work_dir: Path
-    session_path: Path
+    memory_path: Path
     state_path: Path
-    events_path: Path
-    prompt_path: Path
 
     def load_prompt_context(self, max_chars: int) -> str:
         sections: list[str] = []
-
-        session_text = self.session_path.read_text(encoding="utf-8").strip()
-        if session_text:
-            sections.append(f"## {self.session_path.name}\n{session_text}")
+        memory_text = self.memory_path.read_text(encoding="utf-8").strip()
+        if memory_text:
+            sections.append(f"## {self.memory_path.name}\n{memory_text}")
 
         state = self.read_state()
-        state_lines = _format_thread_state_for_prompt(state)
+        state_lines = _format_document_state_for_prompt(state)
         if state_lines:
             sections.append("## state.json\n" + "\n".join(state_lines))
 
@@ -159,6 +161,224 @@ class ThreadWorkspace:
         except json.JSONDecodeError:
             return {}
         return payload if isinstance(payload, dict) else {}
+
+    def write_state(self, payload: dict[str, Any]) -> None:
+        self.state_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+
+@dataclass(frozen=True)
+class ThreadWorkspace:
+    thread_id: str
+    root_dir: Path
+    state_path: Path
+    events_path: Path
+    comments_path: Path
+
+    def load_prompt_context(self, max_chars: int) -> str:
+        state_lines = _format_thread_state_for_prompt(self.read_state())
+        combined = "## state.json\n" + "\n".join(state_lines) if state_lines else ""
+        if len(combined) <= max_chars:
+            return combined
+        return combined[: max(0, max_chars - 1)].rstrip() + "…"
+
+    def read_state(self) -> dict[str, Any]:
+        if not self.state_path.exists():
+            return {}
+        try:
+            payload = json.loads(self.state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def read_transcript(self) -> dict[str, Any]:
+        if not self.comments_path.exists():
+            return {}
+        return _load_transcript_json_text(self.comments_path.read_text(encoding="utf-8"))
+
+    def write_transcript(self, transcript: dict[str, Any]) -> None:
+        self.comments_path.write_text(_transcript_to_json_text(transcript), encoding="utf-8")
+
+    def sync_transcript_from_comments(
+        self,
+        *,
+        document_id: str,
+        document_title: str | None,
+        comments: list[Any],
+        max_recent_comments: int,
+        max_comment_chars: int,
+    ) -> dict[str, Any]:
+        transcript = _build_thread_transcript(
+            thread_id=self.thread_id,
+            document_id=document_id,
+            document_title=document_title,
+            comments=comments,
+        )
+        self.write_transcript(transcript)
+        self.rebuild_comment_state_from_transcript(
+            document_id=document_id,
+            document_title=document_title,
+            max_recent_comments=max_recent_comments,
+            max_comment_chars=max_comment_chars,
+        )
+        logger.debug(
+            "Thread transcript synchronized: thread_id={}, document_id={}, comment_count={}",
+            self.thread_id,
+            document_id,
+            _transcript_comment_count(transcript),
+        )
+        return transcript
+
+    def mark_deleted(
+        self,
+        *,
+        document_id: str,
+        document_title: str | None,
+    ) -> None:
+        transcript = _build_deleted_thread_transcript(
+            thread_id=self.thread_id,
+            document_id=document_id,
+            document_title=document_title,
+        )
+        self.write_transcript(transcript)
+        self.rebuild_comment_state_from_transcript(
+            document_id=document_id,
+            document_title=document_title,
+            max_recent_comments=0,
+            max_comment_chars=0,
+        )
+
+    def rebuild_comment_state_from_transcript(
+        self,
+        *,
+        document_id: str,
+        document_title: str | None,
+        max_recent_comments: int,
+        max_comment_chars: int,
+    ) -> dict[str, Any]:
+        transcript = self.read_transcript()
+        state = self.read_state()
+        recent_turns = _normalize_recent_turns(state.get("recent_turns"))
+        recent_tool_runs = _normalize_recent_tool_runs(state.get("recent_tool_runs"))
+        progress_comment_map = _normalize_progress_comment_map(state.get("progress_comment_map"))
+        progress_comment_states = _normalize_progress_comment_states(
+            state.get("progress_comment_states"),
+            legacy_value=state.get("recent_progress_actions"),
+        )
+        recent_progress_events = _normalize_recent_progress_events(state.get("recent_progress_events"))
+        transcript_comments = _active_transcript_comments(transcript)
+
+        participants: list[dict[str, str | None]] = []
+        recent_comments: list[dict[str, str | None]] = []
+        for item in transcript_comments:
+            participants = _upsert_participant(
+                participants,
+                author_id=item.get("author_id") if isinstance(item.get("author_id"), str) else None,
+                author_name=item.get("author_name") if isinstance(item.get("author_name"), str) else None,
+            )
+            body_plain = item.get("body_plain") if isinstance(item.get("body_plain"), str) else ""
+            recent_comments.append(
+                {
+                    "comment_id": str(item.get("id") or ""),
+                    "author_id": item.get("author_id") if isinstance(item.get("author_id"), str) else None,
+                    "author_name": item.get("author_name") if isinstance(item.get("author_name"), str) else None,
+                    "text": _truncate(body_plain, max_comment_chars) if max_comment_chars > 0 else "",
+                    "created_at": item.get("created_at") if isinstance(item.get("created_at"), str) else None,
+                }
+            )
+        if max_recent_comments > 0:
+            recent_comments = _sort_recent_comments(recent_comments)[-max_recent_comments:]
+        else:
+            recent_comments = []
+
+        last_comment = transcript_comments[-1] if transcript_comments else None
+        last_comment_id = str(last_comment.get("id") or "") if isinstance(last_comment, dict) else None
+        last_comment_at = (
+            last_comment.get("created_at") if isinstance(last_comment, dict) and isinstance(last_comment.get("created_at"), str) else None
+        )
+        last_comment_preview = None
+        if isinstance(last_comment, dict):
+            preview_text = last_comment.get("body_plain")
+            if isinstance(preview_text, str):
+                last_comment_preview = _truncate(preview_text, max_comment_chars) if max_comment_chars > 0 else preview_text
+
+        updated_state = build_thread_state_payload(
+            thread_id=self.thread_id,
+            document_id=document_id,
+            document_title=document_title,
+            last_comment_id=last_comment_id or None,
+            last_comment_at=last_comment_at,
+            last_comment_preview=last_comment_preview,
+            interaction_count=(
+                state.get("interaction_count") if isinstance(state.get("interaction_count"), int) else len(recent_turns)
+            ),
+            comment_count=len(transcript_comments),
+            assistant_turn_count=(
+                state.get("assistant_turn_count") if isinstance(state.get("assistant_turn_count"), int) else 0
+            ),
+            participants=participants,
+            recent_comments=recent_comments,
+            recent_turns=recent_turns,
+            recent_tool_runs=recent_tool_runs,
+            progress_comment_map=progress_comment_map,
+            progress_comment_states=progress_comment_states,
+            recent_progress_events=recent_progress_events,
+        )
+        self._write_state(updated_state)
+        return updated_state
+
+    def build_comment_context(
+        self,
+        *,
+        current_comment_id: str,
+        max_full_thread_chars: int,
+        tail_comment_count: int,
+        summary_max_chars: int,
+    ) -> str:
+        transcript = self.read_transcript()
+        comments = _active_transcript_comments(transcript)
+        if not comments:
+            return "(no additional comment context)"
+
+        full = _render_comments_for_prompt(comments=comments, current_comment_id=current_comment_id)
+        if len(full) <= max_full_thread_chars:
+            logger.debug(
+                "Using full thread context: thread_id={}, comment_count={}, chars={}",
+                self.thread_id,
+                len(comments),
+                len(full),
+            )
+            return full
+
+        root_comments = comments[:1]
+        tail_start = max(1, len(comments) - max(1, tail_comment_count))
+        middle_comments = comments[1:tail_start]
+        tail_comments = comments[tail_start:]
+
+        sections = ["Earlier comment history was truncated for context budget."]
+        root_text = _render_comments_for_prompt(comments=root_comments, current_comment_id=current_comment_id)
+        if root_text:
+            sections.append("Root comment:\n" + root_text)
+        summary_text = _summarize_comments_for_prompt(middle_comments, max_chars=summary_max_chars)
+        if summary_text:
+            sections.append("Distilled earlier thread history:\n" + summary_text)
+        tail_text = _render_comments_for_prompt(comments=tail_comments, current_comment_id=current_comment_id)
+        if tail_text:
+            sections.append(f"Latest {len(tail_comments)} comments:\n" + tail_text)
+        sections.append(
+            "If exact omitted history is needed, use the `get_thread_history` tool to inspect the truncated segment."
+        )
+        truncated = "\n\n".join(section for section in sections if section.strip())
+        logger.debug(
+            "Using truncated thread context: thread_id={}, comment_count={}, full_chars={}, final_chars={}",
+            self.thread_id,
+            len(comments),
+            len(full),
+            len(truncated),
+        )
+        return truncated
 
     def read_events(self, limit: int | None = None) -> list[dict[str, Any]]:
         if not self.events_path.exists():
@@ -205,6 +425,16 @@ class ThreadWorkspace:
         max_recent_comments: int,
         max_comment_chars: int,
     ) -> None:
+        self._upsert_transcript_comment(
+            comment_id=comment_id,
+            parent_comment_id=parent_comment_id,
+            author_id=author_id,
+            author_name=author_name,
+            created_at=created_at,
+            comment_text=comment_text,
+            document_id=document_id,
+            document_title=document_title,
+        )
         state = self.read_state()
         recent_turns = _normalize_recent_turns(state.get("recent_turns"))
         recent_tool_runs = _normalize_recent_tool_runs(state.get("recent_tool_runs"))
@@ -541,13 +771,8 @@ class ThreadWorkspace:
         state = self.read_state()
         recent_comments = _normalize_recent_comments(state.get("recent_comments"))
         participants = _normalize_participants(state.get("participants"))
-        session_text = self.session_path.read_text(encoding="utf-8") if self.session_path.exists() else ""
-        session_summary = _extract_section_text(session_text, "Session Summary")
         preview_parts: list[str] = []
-        if session_summary:
-            preview_parts.append(session_summary)
-        if not preview_parts:
-            preview_parts.extend(item["text"] for item in recent_comments[-3:] if item.get("text"))
+        preview_parts.extend(item["text"] for item in recent_comments[-3:] if item.get("text"))
 
         participant_labels = [
             item.get("name") or item.get("id") for item in participants if item.get("name") or item.get("id")
@@ -567,7 +792,7 @@ class ThreadWorkspace:
                 state.get("assistant_turn_count") if isinstance(state.get("assistant_turn_count"), int) else 0
             ),
             "participants": participant_labels,
-            "session_summary": session_summary,
+            "session_summary": None,
             "recent_preview": " | ".join(part for part in preview_parts if isinstance(part, str) and part.strip()),
             "search_text": "\n".join(chunk for chunk in searchable_chunks if isinstance(chunk, str) and chunk.strip()),
         }
@@ -577,6 +802,45 @@ class ThreadWorkspace:
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+    def _upsert_transcript_comment(
+        self,
+        *,
+        comment_id: str,
+        parent_comment_id: str | None,
+        author_id: str | None,
+        author_name: str | None,
+        created_at: str | None,
+        comment_text: str,
+        document_id: str,
+        document_title: str | None,
+    ) -> None:
+        transcript = self.read_transcript()
+        comments = transcript.get("comments") if isinstance(transcript.get("comments"), list) else []
+        remaining = [item for item in comments if not (isinstance(item, dict) and item.get("id") == comment_id)]
+        remaining.append(
+            {
+                "id": comment_id,
+                "parent_comment_id": parent_comment_id,
+                "author_id": author_id,
+                "author_name": author_name,
+                "created_at": created_at,
+                "updated_at": None,
+                "deleted_at": None,
+                "body_rich": {},
+                "body_plain": comment_text,
+            }
+        )
+        remaining.sort(key=lambda item: ((item.get("created_at") or ""), (item.get("id") or "")))
+        normalized = {
+            "thread_id": self.thread_id,
+            "root_comment_id": self.thread_id,
+            "document_id": document_id,
+            "document_title": document_title,
+            "deleted": False,
+            "comments": remaining,
+        }
+        self.write_transcript(normalized)
 
 
 class CollectionWorkspaceManager:
@@ -588,11 +852,21 @@ class CollectionWorkspaceManager:
         safe_name = _slugify(collection_name or "collection")
         workspace_dir = self.root / f"{safe_name}-{collection_id}"
         memory_dir = workspace_dir / "memory"
+        collection_workspace_dir = workspace_dir / "workspace"
+        attachments_dir = collection_workspace_dir / "attachments"
+        generated_dir = collection_workspace_dir / "generated"
         scratch_dir = workspace_dir / "scratch"
+        documents_dir = workspace_dir / "documents"
         threads_dir = workspace_dir / "threads"
+        archived_threads_dir = workspace_dir / "archived_threads"
         memory_dir.mkdir(parents=True, exist_ok=True)
+        collection_workspace_dir.mkdir(parents=True, exist_ok=True)
+        attachments_dir.mkdir(parents=True, exist_ok=True)
+        generated_dir.mkdir(parents=True, exist_ok=True)
         scratch_dir.mkdir(parents=True, exist_ok=True)
+        documents_dir.mkdir(parents=True, exist_ok=True)
         threads_dir.mkdir(parents=True, exist_ok=True)
+        archived_threads_dir.mkdir(parents=True, exist_ok=True)
 
         system_prompt_path = memory_dir / "00_SYSTEM.md"
         memory_path = memory_dir / "MEMORY.md"
@@ -627,10 +901,82 @@ class CollectionWorkspaceManager:
             collection_name=resolved_name,
             root_dir=workspace_dir,
             memory_dir=memory_dir,
+            workspace_dir=collection_workspace_dir,
+            attachments_dir=attachments_dir,
+            generated_dir=generated_dir,
             scratch_dir=scratch_dir,
+            documents_dir=documents_dir,
             threads_dir=threads_dir,
+            archived_threads_dir=archived_threads_dir,
             system_prompt_path=system_prompt_path,
             memory_path=memory_path,
+        )
+
+    def ensure_document(
+        self,
+        workspace: CollectionWorkspace,
+        *,
+        document_id: str,
+        document_title: str | None,
+    ) -> DocumentWorkspace:
+        safe_document_id = _slugify(document_id)
+        document_dir = workspace.documents_dir / safe_document_id
+        document_dir.mkdir(parents=True, exist_ok=True)
+
+        memory_path = document_dir / "MEMORY.md"
+        state_path = document_dir / "state.json"
+        resolved_title = document_title or "(unknown)"
+
+        if not memory_path.exists():
+            memory_path.write_text(
+                INITIAL_DOCUMENT_MEMORY_TEMPLATE.format(
+                    document_id=document_id,
+                    document_title=resolved_title,
+                    created_note="Initialized",
+                ).strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+        if not state_path.exists():
+            state_path.write_text(
+                json.dumps(
+                    build_initial_document_state(
+                        document_id=document_id,
+                        document_title=document_title,
+                    ),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        else:
+            try:
+                state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                state_payload = {}
+            if not isinstance(state_payload, dict):
+                state_payload = {}
+            state_payload["document_id"] = document_id
+            state_payload["document_title"] = document_title
+            state_path.write_text(
+                json.dumps(state_payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+        self._refresh_document_metadata(
+            memory_path,
+            document_id=document_id,
+            document_title=resolved_title,
+        )
+        self._ensure_document_memory_sections(memory_path)
+
+        return DocumentWorkspace(
+            document_id=document_id,
+            root_dir=document_dir,
+            memory_path=memory_path,
+            state_path=state_path,
         )
 
     def ensure_thread(
@@ -644,25 +990,9 @@ class CollectionWorkspaceManager:
         thread_dir = workspace.threads_dir / safe_thread_id
         thread_dir.mkdir(parents=True, exist_ok=True)
 
-        work_dir = thread_dir / "work"
-        session_path = thread_dir / "SESSION.md"
         state_path = thread_dir / "state.json"
         events_path = thread_dir / "events.jsonl"
-        prompt_path = thread_dir / "PROMPT.md"
-        work_dir.mkdir(parents=True, exist_ok=True)
-
-        resolved_title = document_title or "(unknown)"
-        if not session_path.exists():
-            session_path.write_text(
-                INITIAL_THREAD_SESSION_TEMPLATE.format(
-                    thread_id=thread_id,
-                    document_id=document_id,
-                    document_title=resolved_title,
-                    created_note="Initialized",
-                ).strip()
-                + "\n",
-                encoding="utf-8",
-            )
+        comments_path = thread_dir / "comments.json"
 
         if not state_path.exists():
             state_path.write_text(
@@ -679,32 +1009,45 @@ class CollectionWorkspaceManager:
                 encoding="utf-8",
             )
 
-        if not prompt_path.exists():
-            prompt_path.write_text(
-                INITIAL_TASK_PROMPT_TEMPLATE.strip() + "\n",
-                encoding="utf-8",
-            )
-
         if not events_path.exists():
             events_path.write_text("", encoding="utf-8")
 
-        self._refresh_thread_metadata(
-            session_path,
-            thread_id=thread_id,
-            document_id=document_id,
-            document_title=resolved_title,
-        )
-        self._ensure_thread_sections(session_path)
+        if not comments_path.exists():
+            comments_path.write_text(
+                _transcript_to_json_text(
+                    _build_deleted_thread_transcript(
+                        thread_id=thread_id,
+                        document_id=document_id,
+                        document_title=document_title,
+                    )
+                ),
+                encoding="utf-8",
+            )
 
         return ThreadWorkspace(
             thread_id=thread_id,
             root_dir=thread_dir,
-            work_dir=work_dir,
-            session_path=session_path,
             state_path=state_path,
             events_path=events_path,
-            prompt_path=prompt_path,
+            comments_path=comments_path,
         )
+
+    def archive_thread(self, workspace: CollectionWorkspace, thread_workspace: ThreadWorkspace, *, reason: str) -> Path:
+        destination = workspace.archived_threads_dir / thread_workspace.root_dir.name
+        if destination.exists():
+            suffix = 1
+            while (workspace.archived_threads_dir / f"{thread_workspace.root_dir.name}-{suffix}").exists():
+                suffix += 1
+            destination = workspace.archived_threads_dir / f"{thread_workspace.root_dir.name}-{suffix}"
+        thread_workspace.root_dir.rename(destination)
+        logger.debug(
+            "Archived thread workspace: thread_id={}, from={}, to={}, reason={}",
+            thread_workspace.thread_id,
+            thread_workspace.root_dir,
+            destination,
+            reason,
+        )
+        return destination
 
     def list_document_thread_entries(
         self,
@@ -721,13 +1064,20 @@ class CollectionWorkspaceManager:
             thread_workspace = ThreadWorkspace(
                 thread_id=thread_dir.name,
                 root_dir=thread_dir,
-                work_dir=thread_dir / "work",
-                session_path=thread_dir / "SESSION.md",
                 state_path=thread_dir / "state.json",
                 events_path=thread_dir / "events.jsonl",
-                prompt_path=thread_dir / "PROMPT.md",
+                comments_path=thread_dir / "comments.json",
             )
             state = thread_workspace.read_state()
+            transcript = thread_workspace.read_transcript()
+            if transcript.get("deleted") is True or not _transcript_root_exists(transcript):
+                logger.debug(
+                    "Skipping thread entry candidate: thread_id={}, deleted={}, root_exists={}",
+                    thread_dir.name,
+                    transcript.get("deleted") is True,
+                    _transcript_root_exists(transcript),
+                )
+                continue
             current_document_id = state.get("document_id")
             current_thread_id = state.get("thread_id") or thread_dir.name
             if current_document_id != document_id:
@@ -741,6 +1091,12 @@ class CollectionWorkspaceManager:
             entries.append(entry)
 
         entries.sort(key=lambda item: item.get("last_comment_at") or "", reverse=True)
+        logger.debug(
+            "Listed document thread entries: document_id={}, exclude_thread_id={}, count={}",
+            document_id,
+            exclude_thread_id,
+            len(entries),
+        )
         return entries
 
     def _refresh_collection_metadata(self, memory_path: Path, collection_id: str, collection_name: str) -> None:
@@ -757,25 +1113,40 @@ class CollectionWorkspaceManager:
                 text += f"\n\n{marker}\n"
         memory_path.write_text(text + "\n", encoding="utf-8")
 
-    def _refresh_thread_metadata(
+    def _refresh_document_metadata(
         self,
-        session_path: Path,
+        memory_path: Path,
         *,
-        thread_id: str,
         document_id: str,
         document_title: str,
     ) -> None:
-        text = session_path.read_text(encoding="utf-8")
-        text = re.sub(r"^- Thread ID: .*?$", f"- Thread ID: {thread_id}", text, flags=re.MULTILINE)
-        text = re.sub(r"^- Root Comment ID: .*?$", f"- Root Comment ID: {thread_id}", text, flags=re.MULTILINE)
+        text = memory_path.read_text(encoding="utf-8")
         text = re.sub(r"^- Document ID: .*?$", f"- Document ID: {document_id}", text, flags=re.MULTILINE)
         text = re.sub(r"^- Document Title: .*?$", f"- Document Title: {document_title}", text, flags=re.MULTILINE)
-        session_path.write_text(text, encoding="utf-8")
+        memory_path.write_text(text, encoding="utf-8")
 
-    def _ensure_thread_sections(self, session_path: Path) -> None:
-        text = session_path.read_text(encoding="utf-8").rstrip()
-        for heading in THREAD_SESSION_SECTION_HEADINGS:
+    def _ensure_document_memory_sections(self, memory_path: Path) -> None:
+        text = memory_path.read_text(encoding="utf-8").rstrip()
+        for heading in DOCUMENT_MEMORY_SECTION_HEADINGS:
             marker = f"## {heading}"
             if marker not in text:
                 text += f"\n\n{marker}\n"
-        session_path.write_text(text + "\n", encoding="utf-8")
+        memory_path.write_text(text + "\n", encoding="utf-8")
+
+
+def build_initial_document_state(*, document_id: str, document_title: str | None) -> dict[str, Any]:
+    return {
+        "document_id": document_id,
+        "document_title": document_title,
+    }
+
+
+def _format_document_state_for_prompt(state: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    document_id = state.get("document_id")
+    if isinstance(document_id, str) and document_id:
+        lines.append(f"- document_id: {document_id}")
+    document_title = state.get("document_title")
+    if isinstance(document_title, str) and document_title:
+        lines.append(f"- document_title: {document_title}")
+    return lines

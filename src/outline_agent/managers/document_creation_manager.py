@@ -5,7 +5,8 @@ from pydantic import BaseModel
 from ..clients.model_client import ModelClient, ModelInputImage
 from ..clients.outline_client import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
-from ..state.workspace import ThreadWorkspace
+from ..core.prompt_registry import PromptRegistry
+from ..state.workspace import DocumentWorkspace, ThreadWorkspace
 from ..utils.json_utils import JsonExtractionError, extract_json_object
 
 DOCUMENT_CREATION_SYSTEM_PROMPT = """You decide whether to create a new Outline document for an agent.
@@ -29,9 +30,6 @@ Rules:
 - Create a new document only when the user clearly wants a separate document, not merely changes to the current one
 - The new document should belong to the current collection
 - `title` and `text` are required when `decision = "create"`
-- Keep the document self-contained and useful
-- Keep `summary` short, concrete, and user-facing
-- Do not invent unsupported facts
 """
 
 
@@ -44,13 +42,21 @@ class DocumentCreationProposal(BaseModel):
 
 
 class DocumentCreationManager:
-    def __init__(self, settings: AppSettings, model_client: ModelClient):
+    def __init__(
+        self,
+        settings: AppSettings,
+        model_client: ModelClient,
+        *,
+        prompt_registry: PromptRegistry | None = None,
+    ):
         self.settings = settings
         self.model_client = model_client
+        self.prompt_registry = prompt_registry or PromptRegistry.from_settings(settings)
 
     async def propose_create(
         self,
         *,
+        document_workspace: DocumentWorkspace,
         thread_workspace: ThreadWorkspace,
         collection: OutlineCollection | None,
         document: OutlineDocument,
@@ -62,6 +68,7 @@ class DocumentCreationManager:
         input_images: list[ModelInputImage] | None = None,
     ) -> DocumentCreationProposal:
         user_prompt = self._build_user_prompt(
+            document_workspace=document_workspace,
             thread_workspace=thread_workspace,
             collection=collection,
             document=document,
@@ -72,7 +79,10 @@ class DocumentCreationManager:
             current_comment_image_count=current_comment_image_count,
         )
         raw = await self._generate_with_optional_images(
-            DOCUMENT_CREATION_SYSTEM_PROMPT,
+            self.prompt_registry.compose_internal_prompt(
+                DOCUMENT_CREATION_SYSTEM_PROMPT,
+                "document_creation_policy.md",
+            ),
             user_prompt,
             input_images=input_images or [],
         )
@@ -131,6 +141,7 @@ class DocumentCreationManager:
     def _build_user_prompt(
         self,
         *,
+        document_workspace: DocumentWorkspace,
         thread_workspace: ThreadWorkspace,
         collection: OutlineCollection | None,
         document: OutlineDocument,
@@ -141,9 +152,9 @@ class DocumentCreationManager:
         current_comment_image_count: int,
     ) -> str:
         collection_name = collection.name if collection and collection.name else document.collection_id or "(unknown)"
-        thread_context = _truncate(
-            thread_workspace.load_prompt_context(self.settings.max_thread_session_chars),
-            self.settings.max_thread_session_chars,
+        document_memory = _truncate(
+            document_workspace.load_prompt_context(self.settings.max_document_memory_chars),
+            self.settings.max_document_memory_chars,
         )
         current_comment_image_section = ""
         if current_comment_image_count > 0:
@@ -168,8 +179,8 @@ class DocumentCreationManager:
             f"Thread ID: {thread_workspace.thread_id}\n"
             f"Current document ID: {document.id}\n"
             f"Current document title: {document.title or '(unknown)'}\n\n"
-            "Persisted thread context:\n"
-            f"{thread_context or '(no thread context)'}\n\n"
+            "Persisted document memory:\n"
+            f"{document_memory or '(no document memory)'}\n\n"
             "Relevant comment context:\n"
             f"{comment_context or '(no comment context)'}\n\n"
             f"{current_comment_image_section}"

@@ -53,6 +53,8 @@ async def propose_action_round(
     *,
     action_planner: UnifiedToolPlanner,
     available_tools: list[Any],
+    workspace: Any,
+    document_workspace: Any,
     thread_workspace: Any,
     collection: Any,
     document: Any,
@@ -68,6 +70,8 @@ async def propose_action_round(
 ) -> ProposedActionRound:
     full_proposal = await action_planner.propose_plan(
         available_tools=available_tools,
+        workspace=workspace,
+        document_workspace=document_workspace,
         thread_workspace=thread_workspace,
         collection=collection,
         document=document,
@@ -113,7 +117,7 @@ async def apply_dry_run_round(
             status="planned-dry-run",
             preview=preview,
             context=action_planner.format_reply_context(
-                work_dir=str(session.thread_workspace.work_dir),
+                work_dir=str(session.workspace.workspace_dir),
                 proposal=proposal,
                 status="planned-dry-run",
                 step_summaries=None,
@@ -173,11 +177,13 @@ async def execute_action_round(
         ToolContext(
             settings=settings,
             outline_client=outline_client,
-            work_dir=session.thread_workspace.work_dir,
+            work_dir=session.workspace.workspace_dir,
             document=session.effective_document,
             collection=collection,
             extra={
                 "thread_workspace": session.thread_workspace,
+                "document_workspace": getattr(session, "document_workspace", None),
+                "current_comment_id": session.comment_id,
                 "user_comment": user_comment,
                 "comment_context": comment_context,
                 "related_documents_context": related_documents_context,
@@ -194,7 +200,7 @@ async def execute_action_round(
     report = plan_execution_summary_to_tool_report(summary)
     report_preview = report.preview or preview or report.status
     context = action_planner.format_reply_context(
-        work_dir=str(session.thread_workspace.work_dir),
+        work_dir=str(session.workspace.workspace_dir),
         proposal=proposal,
         status=report.status,
         step_summaries=[result.summary for result in report.step_results],
@@ -203,7 +209,7 @@ async def execute_action_round(
         round_index=round_index,
         plan_preview=action_plan_steps_preview(proposal),
         summary=summary,
-        work_dir=session.thread_workspace.work_dir,
+        work_dir=session.workspace.workspace_dir,
         max_work_dir_entries=settings.tool_list_dir_max_entries,
     )
     session.round_history.append(f"round {round_index} (status={report.status}): {report_preview}")

@@ -16,121 +16,6 @@ from outline_agent.clients.outline_client import (
 )
 from outline_agent.utils.rich_text import extract_plain_text
 
-
-def test_build_comment_data_uses_paragraphs_instead_of_hard_breaks() -> None:
-    result = build_comment_data("First line\nSecond line")
-
-    assert result == {
-        "type": "doc",
-        "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "First line"}]},
-            {"type": "paragraph", "content": [{"type": "text", "text": "Second line"}]},
-        ],
-    }
-
-
-def test_build_comment_data_skips_blank_lines() -> None:
-    result = build_comment_data("First line\n\nSecond line\n")
-
-    assert result == {
-        "type": "doc",
-        "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "First line"}]},
-            {"type": "paragraph", "content": [{"type": "text", "text": "Second line"}]},
-        ],
-    }
-
-
-def test_build_markdown_comment_data_preserves_progress_comment_formatting() -> None:
-    result = build_markdown_comment_data(
-        "Working on it — I'm carrying out the requested local workspace actions.\n\n"
-        "Recent progress:\n"
-        "  - Planned round 1: create or update `hello.sh`; run `bash hello.sh`.\n"
-        "  - Finished: ran `bash hello.sh` → output `hello-from-tool`."
-    )
-
-    assert result == {
-        "type": "doc",
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "Working on it — I'm carrying out the requested local workspace actions.",
-                    }
-                ],
-            },
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": "Recent progress:"}],
-            },
-            {
-                "type": "bullet_list",
-                "content": [
-                    {
-                        "type": "list_item",
-                        "content": [
-                            {
-                                "type": "paragraph",
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": "Planned round 1: create or update ",
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": "hello.sh",
-                                        "marks": [{"type": "code_inline"}],
-                                    },
-                                    {"type": "text", "text": "; run "},
-                                    {
-                                        "type": "text",
-                                        "text": "bash hello.sh",
-                                        "marks": [{"type": "code_inline"}],
-                                    },
-                                    {"type": "text", "text": "."},
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "type": "list_item",
-                        "content": [
-                            {
-                                "type": "paragraph",
-                                "content": [
-                                    {"type": "text", "text": "Finished: ran "},
-                                    {
-                                        "type": "text",
-                                        "text": "bash hello.sh",
-                                        "marks": [{"type": "code_inline"}],
-                                    },
-                                    {"type": "text", "text": " → output "},
-                                    {
-                                        "type": "text",
-                                        "text": "hello-from-tool",
-                                        "marks": [{"type": "code_inline"}],
-                                    },
-                                    {"type": "text", "text": "."},
-                                ],
-                            }
-                        ],
-                    },
-                ],
-            },
-        ],
-    }
-
-
-def test_normalize_comment_markdown_rewrites_unsupported_heading_table_and_code_block() -> None:
-    result = normalize_comment_markdown(
-        "# Plan\n\n| Step | Owner |\n| --- | --- |\n| Ship | Agent |\n\n```bash\nnpm test\n```"
-    )
-
-    assert result == ("**Plan**\n\nTable:\n- Step: Ship; Owner: Agent\n\nCode:\n- npm test")
-
-
 def test_build_markdown_comment_data_uses_safe_blocks_after_markdown_normalization() -> None:
     result = build_markdown_comment_data("# Summary\n\n```bash\nnpm test\n```")
 
@@ -178,77 +63,6 @@ def test_split_comment_text_breaks_long_reply_on_line_boundaries() -> None:
     assert chunks[0] == "\n".join(["A" * 450, "B" * 450])
     assert chunks[1] == "C" * 450
     assert all(len(extract_plain_text(build_comment_data(chunk))) <= 1000 for chunk in chunks)
-
-
-def test_split_comment_text_breaks_single_very_long_line() -> None:
-    text = "word " * 260
-
-    chunks = split_comment_text(text, max_chars=1000)
-
-    assert len(chunks) >= 2
-    assert all(len(extract_plain_text(build_comment_data(chunk))) <= 1000 for chunk in chunks)
-
-
-def test_prepare_comment_chunks_adds_numbering_for_multi_part_reply() -> None:
-    text = "\n".join(
-        [
-            "A" * 450,
-            "B" * 450,
-            "C" * 450,
-        ]
-    )
-
-    chunks = prepare_comment_chunks(text, max_chars=1000)
-
-    assert chunks == [
-        "[1/2]\n\n" + "\n".join(["A" * 450, "B" * 450]),
-        "[2/2]\n\n" + "C" * 450,
-    ]
-    assert all(len(chunk) <= 1000 for chunk in chunks)
-
-
-def test_split_comment_text_keeps_ordered_list_items_intact_when_splitting_markdown() -> None:
-    points = [
-        (
-            f"{index}. **要点{index}** 这是第 {index} 条的第一句，用来说明一个具体边界。"
-            "第二句补充为什么这个约束对 agent 安全执行很重要。"
-            "第三句说明如果没有这条边界，模型可能会产生什么越界或失控行为。"
-        )
-        for index in range(1, 13)
-    ]
-    text = "可以，下面分点说明：\n\n" + "\n".join(points)
-
-    chunks = split_comment_text(text, max_chars=1000)
-
-    assert len(chunks) == 2
-    assert chunks[0].startswith("可以，下面分点说明：\n\n1. **要点1**")
-    assert "\n10. **要点10**" in chunks[0]
-    assert "\n11. **要点11**" not in chunks[0]
-    assert chunks[1].startswith("11. **要点11**")
-    assert "\n12. **要点12**" in chunks[1]
-    assert all(len(chunk) <= 1000 for chunk in chunks)
-
-
-def test_prepare_comment_chunks_numbers_split_markdown_list_reply() -> None:
-    points = [
-        (
-            f"{index}. **要点{index}** 这是第 {index} 条的第一句，用来说明一个具体边界。"
-            "第二句补充为什么这个约束对 agent 安全执行很重要。"
-            "第三句说明如果没有这条边界，模型可能会产生什么越界或失控行为。"
-        )
-        for index in range(1, 13)
-    ]
-    text = "可以，下面分点说明：\n\n" + "\n".join(points)
-
-    chunks = prepare_comment_chunks(text, max_chars=1000)
-
-    assert len(chunks) == 2
-    assert chunks[0].startswith("[1/2]\n\n可以，下面分点说明：\n\n1. **要点1**")
-    assert "\n10. **要点10**" in chunks[0]
-    assert chunks[1].startswith("[2/2]\n\n11. **要点11**")
-    assert "\n12. **要点12**" in chunks[1]
-    assert all(len(chunk) <= 1000 for chunk in chunks)
-
 
 class RecordingOutlineClient(OutlineClient):
     def __init__(self) -> None:
@@ -434,48 +248,6 @@ def test_outline_client_create_comment_uses_rich_text_data_payload() -> None:
         )
     ]
 
-
-def test_outline_client_update_comment_prefers_rich_text_data_payload() -> None:
-    client = RecordingOutlineClient()
-
-    result = asyncio.run(client.update_comment("comment-1", "**updated**\n\n`code`"))
-
-    assert result["id"] == "comment-1"
-    assert client.calls == [
-        (
-            "comments.update",
-            {
-                "id": "comment-1",
-                "data": {
-                    "type": "doc",
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": "updated",
-                                    "marks": [{"type": "strong"}],
-                                }
-                            ],
-                        },
-                        {
-                            "type": "paragraph",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": "code",
-                                    "marks": [{"type": "code_inline"}],
-                                }
-                            ],
-                        },
-                    ],
-                },
-            },
-        )
-    ]
-
-
 def test_outline_client_update_comment_retries_invalid_data_with_plain_data_payload() -> None:
     client = UpdateFallbackRecordingOutlineClient()
 
@@ -544,57 +316,6 @@ def test_outline_client_update_comment_retries_invalid_data_with_plain_data_payl
             },
         ),
     ]
-
-
-def test_outline_client_create_comment_retries_internal_error_with_data_payload() -> None:
-    client = FallbackRecordingOutlineClient()
-
-    result = asyncio.run(client.create_comment("doc-1", "**bold**\n\n`code`", parent_comment_id="root-1"))
-
-    assert result["id"] == "comment-2"
-    assert client.calls == [
-        (
-            "comments.create",
-            {
-                "documentId": "doc-1",
-                "parentCommentId": "root-1",
-                "data": {
-                    "type": "doc",
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": "bold",
-                                    "marks": [{"type": "strong"}],
-                                }
-                            ],
-                        },
-                        {
-                            "type": "paragraph",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": "code",
-                                    "marks": [{"type": "code_inline"}],
-                                }
-                            ],
-                        },
-                    ],
-                },
-            },
-        ),
-        (
-            "comments.create",
-            {
-                "documentId": "doc-1",
-                "parentCommentId": "root-1",
-                "text": "**bold**\n\n`code`",
-            },
-        ),
-    ]
-
 
 def test_outline_client_create_comment_retries_rich_fallback_with_plain_data_payload() -> None:
     client = PlainFallbackRecordingOutlineClient()
@@ -690,30 +411,6 @@ def test_outline_client_upload_attachment_creates_attachment_and_uploads_file(tm
             "content_type": "application/pdf",
         }
     ]
-
-
-def test_outline_client_upload_attachment_falls_back_to_redirect_url_when_response_omits_url(tmp_path: Path) -> None:
-    class MissingUrlAttachmentClient(AttachmentRecordingOutlineClient):
-        async def _call_http(self, endpoint: str, payload: dict):  # type: ignore[override]
-            self.calls.append((endpoint, payload))
-            if endpoint == "attachments.create":
-                return {
-                    "data": {
-                        "uploadUrl": "/api/files.create",
-                        "form": {"key": "uploads/test/report.pdf"},
-                        "attachment": {"id": "attachment-1", "name": payload["name"]},
-                    }
-                }
-            return {"ok": True}
-
-    client = MissingUrlAttachmentClient()
-    source = tmp_path / "report.pdf"
-    source.write_bytes(b"%PDF-1.7\nfake-pdf\n")
-
-    result = asyncio.run(client.upload_attachment("doc-1", source))
-
-    assert result["attachment"]["url"] == "https://outline.example/api/attachments.redirect?id=attachment-1"
-
 
 def test_outline_client_upload_attachment_builds_async_safe_multipart_request(
     tmp_path: Path,

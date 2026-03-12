@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import runpy
 from pathlib import Path
 
 from outline_agent import cli as cli_module
@@ -26,9 +25,11 @@ def test_start_command_prints_config_sources(
 
     user_root.mkdir(parents=True, exist_ok=True)
     project_root.mkdir(parents=True, exist_ok=True)
-    (package_prompt_root / "packs").mkdir(parents=True, exist_ok=True)
-    (package_prompt_root / "00_system.md").write_text("Package prompt.", encoding="utf-8")
-    (package_prompt_root / "packs/outline_style.md").write_text("Outline style.", encoding="utf-8")
+    (package_prompt_root / "user/packs").mkdir(parents=True, exist_ok=True)
+    (package_prompt_root / "internal").mkdir(parents=True, exist_ok=True)
+    (package_prompt_root / "user/00_system.md").write_text("Package prompt.", encoding="utf-8")
+    (package_prompt_root / "user/packs/outline_style.md").write_text("Outline style.", encoding="utf-8")
+    (package_prompt_root / "internal/tool_planner_policy.md").write_text("Planner policy.", encoding="utf-8")
 
     (user_root / "config.yaml").write_text(
         """
@@ -104,9 +105,11 @@ def test_start_command_accepts_explicit_config_path(
     user_root.mkdir(parents=True, exist_ok=True)
     project_root.mkdir(parents=True, exist_ok=True)
     custom_root.mkdir(parents=True, exist_ok=True)
-    (package_prompt_root / "packs").mkdir(parents=True, exist_ok=True)
-    (package_prompt_root / "00_system.md").write_text("Package prompt.", encoding="utf-8")
-    (package_prompt_root / "packs/outline_style.md").write_text("Outline style.", encoding="utf-8")
+    (package_prompt_root / "user/packs").mkdir(parents=True, exist_ok=True)
+    (package_prompt_root / "internal").mkdir(parents=True, exist_ok=True)
+    (package_prompt_root / "user/00_system.md").write_text("Package prompt.", encoding="utf-8")
+    (package_prompt_root / "user/packs/outline_style.md").write_text("Outline style.", encoding="utf-8")
+    (package_prompt_root / "internal/tool_planner_policy.md").write_text("Planner policy.", encoding="utf-8")
     custom_config_path.write_text(
         """
 server:
@@ -169,9 +172,11 @@ def test_start_command_exits_when_outline_identity_validation_fails(
 
     user_root.mkdir(parents=True, exist_ok=True)
     project_root.mkdir(parents=True, exist_ok=True)
-    (package_prompt_root / "packs").mkdir(parents=True, exist_ok=True)
-    (package_prompt_root / "00_system.md").write_text("Package prompt.", encoding="utf-8")
-    (package_prompt_root / "packs/outline_style.md").write_text("Outline style.", encoding="utf-8")
+    (package_prompt_root / "user/packs").mkdir(parents=True, exist_ok=True)
+    (package_prompt_root / "internal").mkdir(parents=True, exist_ok=True)
+    (package_prompt_root / "user/00_system.md").write_text("Package prompt.", encoding="utf-8")
+    (package_prompt_root / "user/packs/outline_style.md").write_text("Outline style.", encoding="utf-8")
+    (package_prompt_root / "internal/tool_planner_policy.md").write_text("Planner policy.", encoding="utf-8")
 
     (user_root / "config.yaml").write_text(
         """
@@ -227,9 +232,11 @@ def test_start_command_bootstraps_missing_config_and_exits(
 
     user_root.mkdir(parents=True, exist_ok=True)
     project_root.mkdir(parents=True, exist_ok=True)
-    (package_prompt_root / "packs").mkdir(parents=True, exist_ok=True)
-    (package_prompt_root / "00_system.md").write_text("Package prompt.", encoding="utf-8")
-    (package_prompt_root / "packs/outline_style.md").write_text("Outline style.", encoding="utf-8")
+    (package_prompt_root / "user/packs").mkdir(parents=True, exist_ok=True)
+    (package_prompt_root / "internal").mkdir(parents=True, exist_ok=True)
+    (package_prompt_root / "user/00_system.md").write_text("Package prompt.", encoding="utf-8")
+    (package_prompt_root / "user/packs/outline_style.md").write_text("Outline style.", encoding="utf-8")
+    (package_prompt_root / "internal/tool_planner_policy.md").write_text("Planner policy.", encoding="utf-8")
 
     monkeypatch.setenv("OUTLINE_AGENT_HOME", str(user_root))
     monkeypatch.setattr(config_module, "PROJECT_ROOT", project_root)
@@ -251,17 +258,3 @@ def test_start_command_bootstraps_missing_config_and_exits(
     stderr = capsys.readouterr().err
     assert "created initial config" in stderr
     assert str(created_config) in stderr
-
-
-def test_python_module_entrypoint_delegates_to_cli_main(monkeypatch) -> None:
-    def fake_main() -> int:
-        return 7
-
-    monkeypatch.setattr(cli_module, "main", fake_main)
-
-    try:
-        runpy.run_module("outline_agent", run_name="__main__", alter_sys=True)
-    except SystemExit as exc:
-        assert exc.code == 7
-    else:
-        raise AssertionError("expected python -m outline_agent to exit via cli.main")

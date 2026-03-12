@@ -26,11 +26,16 @@ def test_collection_workspace_manager_bootstraps_memory_files(tmp_path: Path) ->
     assert "MEMORY.md" in prompt_context
 
 
-def test_collection_workspace_manager_bootstraps_thread_session_files(tmp_path: Path) -> None:
+def test_collection_workspace_manager_bootstraps_document_and_thread_files(tmp_path: Path) -> None:
     manager = CollectionWorkspaceManager(tmp_path / "agents")
     workspace = manager.ensure(
         collection_id="107b2669-e0ad-4abd-a66e-28305124edc8",
         collection_name="Outline Agent Dev Sandbox",
+    )
+    document_workspace = manager.ensure_document(
+        workspace,
+        document_id="doc-123",
+        document_title="Outline Agent Kickoff",
     )
 
     thread_workspace = manager.ensure_thread(
@@ -41,14 +46,14 @@ def test_collection_workspace_manager_bootstraps_thread_session_files(tmp_path: 
     )
 
     assert thread_workspace.root_dir.exists()
-    assert thread_workspace.work_dir.exists()
-    assert thread_workspace.session_path.exists()
+    assert document_workspace.root_dir.exists()
+    assert document_workspace.memory_path.exists()
+    assert document_workspace.state_path.exists()
     assert thread_workspace.state_path.exists()
-    assert thread_workspace.prompt_path.exists()
 
-    session_text = thread_workspace.session_path.read_text(encoding="utf-8")
-    assert "Thread ID: root-user-comment" in session_text
-    assert "Document Title: Outline Agent Kickoff" in session_text
+    memory_text = document_workspace.memory_path.read_text(encoding="utf-8")
+    assert "Document ID: doc-123" in memory_text
+    assert "Document Title: Outline Agent Kickoff" in memory_text
 
     thread_workspace.record_turn(
         comment_id="comment-1",
@@ -60,7 +65,7 @@ def test_collection_workspace_manager_bootstraps_thread_session_files(tmp_path: 
         max_turn_chars=200,
     )
     prompt_context = thread_workspace.load_prompt_context(max_chars=10_000)
-    assert "SESSION.md" in prompt_context
+    assert "state.json" in prompt_context
     assert "interaction_count: 1" in prompt_context
     assert "Please summarize this document." in prompt_context
 
@@ -96,3 +101,6 @@ def test_collection_workspace_manager_bootstraps_thread_session_files(tmp_path: 
     assert "recent_progress_events" in prompt_context
     assert "status-comment-1" in prompt_context
     assert "Done — local workspace actions finished." in prompt_context
+
+    document_prompt_context = document_workspace.load_prompt_context(max_chars=10_000)
+    assert "MEMORY.md" in document_prompt_context

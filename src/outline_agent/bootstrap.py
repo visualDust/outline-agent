@@ -73,9 +73,9 @@ def build_comment_processor(
         if settings.tool_use_enabled
         else memory_profile
     )
-    thread_session_profile = (
-        model_resolver.resolve(settings.thread_session_model_ref or settings.memory_model_ref or settings.model_ref)
-        if settings.thread_session_update_enabled
+    document_memory_profile = (
+        model_resolver.resolve(settings.document_memory_model_ref or settings.memory_model_ref or settings.model_ref)
+        if settings.document_memory_update_enabled
         else memory_profile
     )
 
@@ -85,7 +85,7 @@ def build_comment_processor(
         outline_client=outline_client,
         model_client=_build_model_client(profile, settings),
         memory_model_client=_build_model_client(memory_profile, settings),
-        thread_session_model_client=_build_model_client(thread_session_profile, settings),
+        document_memory_model_client=_build_model_client(document_memory_profile, settings),
         document_update_model_client=_build_model_client(document_update_profile, settings),
         tool_model_client=_build_model_client(tool_profile, settings),
         action_router_model_client=_build_model_client(action_router_profile, settings),

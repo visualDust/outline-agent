@@ -7,6 +7,7 @@ from .registry import ToolRegistry
 from .workspace_tools import (
     DownloadAttachmentTool,
     EditFileTool,
+    GetThreadHistoryTool,
     ListDirTool,
     ReadFileTool,
     RunShellTool,
@@ -23,6 +24,7 @@ __all__ = [
     "build_default_tool_registry",
     "DownloadAttachmentTool",
     "EditFileTool",
+    "GetThreadHistoryTool",
     "GetCurrentDocumentTool",
     "ListDirTool",
     "ReadFileTool",

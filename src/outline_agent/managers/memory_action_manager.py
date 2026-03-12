@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from ..clients.model_client import ModelClient
 from ..clients.outline_client import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
+from ..core.prompt_registry import PromptRegistry
 from ..state.workspace import MEMORY_SECTION_HEADINGS, CollectionWorkspace
 from ..utils.json_utils import JsonExtractionError, extract_json_object
 from .memory_manager import write_memory_index
@@ -34,7 +35,6 @@ Return strict JSON only with this schema:
 Rules:
 - If the user did not request a memory change, return actions = [].
 - For update/delete/move, target must match an existing memory item exactly.
-- Keep each text short and concrete.
 - At most {max_actions} actions.
 """
 
@@ -66,9 +66,16 @@ class MemoryEntryLocation:
 
 
 class MemoryActionManager:
-    def __init__(self, settings: AppSettings, model_client: ModelClient):
+    def __init__(
+        self,
+        settings: AppSettings,
+        model_client: ModelClient,
+        *,
+        prompt_registry: PromptRegistry | None = None,
+    ):
         self.settings = settings
         self.model_client = model_client
+        self.prompt_registry = prompt_registry or PromptRegistry.from_settings(settings)
 
     async def propose_actions(
         self,
@@ -78,8 +85,11 @@ class MemoryActionManager:
         document: OutlineDocument,
         user_comment: str,
     ) -> MemoryActionPlan:
-        system_prompt = MEMORY_ACTION_SYSTEM_PROMPT.format(
-            max_actions=self.settings.memory_update_max_entries,
+        system_prompt = self.prompt_registry.compose_internal_prompt(
+            MEMORY_ACTION_SYSTEM_PROMPT.format(
+                max_actions=self.settings.memory_update_max_entries,
+            ),
+            "memory_action_policy.md",
         )
         user_prompt = self._build_user_prompt(
             workspace=workspace,

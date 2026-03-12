@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 from ..clients.model_client import ModelClient, ModelInputImage
 from ..clients.outline_client import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
-from ..state.workspace import ThreadWorkspace
+from ..core.prompt_registry import PromptRegistry
+from ..state.workspace import DocumentWorkspace, ThreadWorkspace
 from ..utils.json_utils import JsonExtractionError, extract_json_object
 from ..utils.markdown_sections import (
     MarkdownEditOperation,
@@ -57,11 +58,6 @@ Rules:
 - `append_document` adds new Markdown at the end of the document
 - `replace_document` is allowed only when the document is short or lacks useful section structure
 - Keep operations minimal and focused; at most {max_operations} operations
-- Preserve unchanged content as much as possible
-- For `replace_section`, include the section heading in `new_markdown`
-- Keep formatting as valid Markdown
-- Do not invent unsupported facts
-- Keep `summary` short, concrete, and user-facing
 """
 
 
@@ -88,13 +84,21 @@ class DocumentUpdateProposal(BaseModel):
 
 
 class DocumentUpdateManager:
-    def __init__(self, settings: AppSettings, model_client: ModelClient):
+    def __init__(
+        self,
+        settings: AppSettings,
+        model_client: ModelClient,
+        *,
+        prompt_registry: PromptRegistry | None = None,
+    ):
         self.settings = settings
         self.model_client = model_client
+        self.prompt_registry = prompt_registry or PromptRegistry.from_settings(settings)
 
     async def propose_update(
         self,
         *,
+        document_workspace: DocumentWorkspace,
         thread_workspace: ThreadWorkspace,
         collection: OutlineCollection | None,
         document: OutlineDocument,
@@ -113,10 +117,14 @@ class DocumentUpdateManager:
             user_comment=user_comment,
             max_sections=self.settings.document_update_max_context_sections,
         )
-        system_prompt = DOCUMENT_UPDATE_SYSTEM_PROMPT.format(
-            max_operations=self.settings.document_update_max_operations,
+        system_prompt = self.prompt_registry.compose_internal_prompt(
+            DOCUMENT_UPDATE_SYSTEM_PROMPT.format(
+                max_operations=self.settings.document_update_max_operations,
+            ),
+            "document_update_policy.md",
         )
         user_prompt = self._build_user_prompt(
+            document_workspace=document_workspace,
             thread_workspace=thread_workspace,
             collection=collection,
             document=document,
@@ -200,6 +208,7 @@ class DocumentUpdateManager:
     def _build_user_prompt(
         self,
         *,
+        document_workspace: DocumentWorkspace,
         thread_workspace: ThreadWorkspace,
         collection: OutlineCollection | None,
         document: OutlineDocument,
@@ -214,9 +223,9 @@ class DocumentUpdateManager:
         document_is_long: bool,
     ) -> str:
         collection_name = collection.name if collection and collection.name else document.collection_id or "(unknown)"
-        thread_context = _truncate(
-            thread_workspace.load_prompt_context(self.settings.max_thread_session_chars),
-            self.settings.max_thread_session_chars,
+        document_memory = _truncate(
+            document_workspace.load_prompt_context(self.settings.max_document_memory_chars),
+            self.settings.max_document_memory_chars,
         )
         outline = format_document_outline(
             sections,
@@ -263,8 +272,8 @@ class DocumentUpdateManager:
             f"Document ID: {document.id}\n"
             f"Current document title: {document.title or '(unknown)'}\n"
             f"Document context mode: {context_mode}\n\n"
-            "Persisted thread context:\n"
-            f"{thread_context or '(no thread context)'}\n\n"
+            "Persisted document memory:\n"
+            f"{document_memory or '(no document memory)'}\n\n"
             "Relevant comment context:\n"
             f"{comment_context or '(no comment context)'}\n\n"
             f"{current_comment_image_section}"

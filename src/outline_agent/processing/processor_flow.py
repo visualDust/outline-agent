@@ -5,9 +5,6 @@ from ..utils.attachment_context import (
     collect_attachment_context as _collect_attachment_context,
 )
 from .processor_context import (
-    archive_context_comments as _archive_context_comments,
-)
-from .processor_context import (
     detect_reply_trigger as _detect_reply_trigger,
 )
 from .processor_context import (
@@ -62,10 +59,7 @@ async def resolve_thread_trigger(
     services: ProcessorServices,
     prepared: PreparedRequest,
 ) -> ResolvedThreadTrigger | ProcessingResult:
-    comments = await services.outline_client.comments_list(
-        prepared.comment.documentId,
-        limit=services.settings.comment_list_limit,
-    )
+    comments = prepared.document_comments
     triggered_alias = prepared.triggered_alias
     if not triggered_alias:
         triggered_alias = _detect_reply_trigger(
@@ -108,17 +102,17 @@ async def prepare_thread_context(
     )
 
     context_comments = _select_context_comments(
-        resolved_trigger.comments,
+        prepared.thread_comments or resolved_trigger.comments,
         prepared.comment,
         limit=services.settings.max_context_comments,
     )
-    _archive_context_comments(
-        settings=services.settings,
+    comment_context = _format_comment_context(
         thread_workspace=prepared.thread_workspace,
-        context_comments=context_comments,
-        document=prepared.document,
+        current_comment_id=prepared.comment.id,
+        max_full_thread_chars=services.settings.max_full_thread_chars,
+        tail_comment_count=services.settings.thread_tail_comments,
+        summary_max_chars=services.settings.thread_summary_max_chars,
     )
-    comment_context = _format_comment_context(context_comments, current_comment_id=prepared.comment.id)
     available_attachment_context = _collect_attachment_context(
         document=prepared.document,
         comments=context_comments,
@@ -133,6 +127,7 @@ async def prepare_thread_context(
     prompt_text = cleaned_text.strip() or ("The user only pinged the agent. Ask a short clarifying follow-up question.")
     try:
         action_route = await services.action_router.decide(
+            document_workspace=prepared.document_workspace,
             thread_workspace=prepared.thread_workspace,
             collection=prepared.collection,
             document=prepared.document,
@@ -218,6 +213,8 @@ async def prepare_action_outcome(
     action_plan_outcome = await services.execute_action_plan(
         ActionPlanRequest(
             comment_id=prepared.comment.id,
+            workspace=prepared.workspace,
+            document_workspace=prepared.document_workspace,
             thread_workspace=prepared.thread_workspace,
             collection=prepared.collection,
             document=prepared.document,

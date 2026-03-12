@@ -154,7 +154,7 @@ def test_execution_loop_repairs_download_attachment_path_from_attachment_context
     context = ToolContext(
         settings=settings,
         outline_client=outline_client,
-        work_dir=thread_workspace.work_dir,
+        work_dir=workspace.workspace_dir,
         collection=OutlineCollection(id="collection-1", name="Test", description=None, url=None),
         document=OutlineDocument(id="doc-1", title="Doc", collection_id="collection-1", url=None, text=""),
         extra={
@@ -188,6 +188,6 @@ def test_execution_loop_repairs_download_attachment_path_from_attachment_context
     assert outline_client.downloads == [
         {
             "url_or_path": "/api/attachments.redirect?id=paper-1",
-            "file_path": str(thread_workspace.work_dir / "attachments" / "current" / "paper.pdf"),
+            "file_path": str(workspace.workspace_dir / "attachments" / "current" / "paper.pdf"),
         }
     ]
