@@ -2,6 +2,12 @@
 
 This document inventories the prompt surfaces in the project and classifies which ones are safe to customize.
 
+Current prompt source model:
+
+- built-in defaults live under `src/outline_agent/assets/prompts/`
+- optional user overrides live under `~/.outline-agent/prompts/`
+- there is no separate project-root `./prompts/` layer anymore
+
 ## Risk model
 
 ### Level 1 — user-customizable
@@ -18,74 +24,84 @@ Should remain in code. These prompts contain structured-output contracts, safety
 
 ## File-based prompts
 
-### `prompts/user/00_system.md`
+### `~/.outline-agent/prompts/user/00_system.md`
 
 - Level: 1
-- Purpose: base assistant behavior for comment replies
+- Purpose: user override for base assistant behavior for comment replies
 - Safe to change: tone, verbosity defaults, formatting preferences
 - Unsafe to change: anything that encourages fabricated actions or ignores comment-rendering constraints
+- Built-in default: `src/outline_agent/assets/prompts/user/00_system.md`
 
-### `prompts/user/reply_policy.md`
+### `~/.outline-agent/prompts/user/reply_policy.md`
 
 - Level: 1
-- Purpose: final reply-style instruction appended to the reply prompt
+- Purpose: user override for the final reply-style instruction appended to the reply prompt
 - Safe to change: brevity, acknowledgement style, clarification style
 - Unsafe to change: anything that conflicts with runtime truth or encourages ignoring action outcomes
+- Built-in default: `src/outline_agent/assets/prompts/user/reply_policy.md`
 
-### `prompts/user/packs/*.md`
+### `~/.outline-agent/prompts/user/packs/*.md`
 
 - Level: 1
-- Purpose: optional style overlays
+- Purpose: user override for optional style overlays
 - Safe to change: structure, readability, language/style conventions
+- Built-in default pack path: `src/outline_agent/assets/prompts/user/packs/*.md`
 
-### `prompts/internal/tool_planner_policy.md`
+### `~/.outline-agent/prompts/internal/tool_planner_policy.md`
 
 - Level: 2
-- Purpose: tool-planning heuristics layered on top of the fixed planner protocol
+- Purpose: maintainer override for tool-planning heuristics layered on top of the fixed planner protocol
 - Safe to change: planner conservatism, attachment workflow preference, recovery heuristics
 - Risk: poor edits can make tool use inefficient or unstable
+- Built-in default: `src/outline_agent/assets/prompts/internal/tool_planner_policy.md`
 
-### `prompts/internal/document_update_policy.md`
+### `~/.outline-agent/prompts/internal/document_update_policy.md`
 
 - Level: 2
 - Purpose: document-editing heuristics layered on top of the fixed document-update protocol
 - Safe to change: preference for section edits vs broad rewrites, preservation bias
 - Risk: over-aggressive edits or poor rewrite choices
+- Built-in default: `src/outline_agent/assets/prompts/internal/document_update_policy.md`
 
-### `prompts/internal/document_creation_policy.md`
+### `~/.outline-agent/prompts/internal/document_creation_policy.md`
 
 - Level: 2
 - Purpose: new-document drafting heuristics layered on top of the fixed creation protocol
 - Safe to change: thresholds for when standalone docs are appropriate, desired draft quality
 - Risk: over-creating or under-creating documents
+- Built-in default: `src/outline_agent/assets/prompts/internal/document_creation_policy.md`
 
-### `prompts/internal/memory_update_policy.md`
+### `~/.outline-agent/prompts/internal/memory_update_policy.md`
 
 - Level: 2
 - Purpose: collection-memory retention heuristics layered on top of the fixed memory-update protocol
 - Safe to change: what kinds of durable collection facts should be retained
 - Risk: polluted or underpowered collection memory
+- Built-in default: `src/outline_agent/assets/prompts/internal/memory_update_policy.md`
 
-### `prompts/internal/document_memory_update_policy.md`
+### `~/.outline-agent/prompts/internal/document_memory_update_policy.md`
 
 - Level: 2
 - Purpose: document-memory retention heuristics layered on top of the fixed document-memory protocol
 - Safe to change: summary quality, open-question thresholds, note granularity
 - Risk: transcript leakage into memory or loss of useful document-level continuity
+- Built-in default: `src/outline_agent/assets/prompts/internal/document_memory_update_policy.md`
 
-### `prompts/internal/action_router_policy.md`
+### `~/.outline-agent/prompts/internal/action_router_policy.md`
 
 - Level: 2
 - Purpose: conservative routing heuristics layered on top of the fixed action-router protocol
 - Safe to change: how strict the router should be before enabling cross-thread lookup/handoff
 - Risk: false-positive or false-negative special routing
+- Built-in default: `src/outline_agent/assets/prompts/internal/action_router_policy.md`
 
-### `prompts/internal/memory_action_policy.md`
+### `~/.outline-agent/prompts/internal/memory_action_policy.md`
 
 - Level: 2
 - Purpose: heuristics for explicit memory-management intent layered on top of the fixed memory-action protocol
 - Safe to change: how conservative the system should be about interpreting “remember/forget/correct”
 - Risk: accidental memory edits or missed user intent
+- Built-in default: `src/outline_agent/assets/prompts/internal/memory_action_policy.md`
 
 ## Protocol-locked prompt surfaces
 
@@ -114,6 +130,6 @@ These still live in Python and are intentionally not exposed as user-editable fi
 
 ## Practical guidance
 
-- If you want the agent to **sound different**, edit `prompts/user/`.
-- If you want the agent to **plan/update/memorize differently**, edit `prompts/internal/` carefully.
+- If you want the agent to **sound different**, override files under `~/.outline-agent/prompts/user/`.
+- If you want the agent to **plan/update/memorize differently**, override files under `~/.outline-agent/prompts/internal/` carefully.
 - If you want to change **schemas, tool contracts, or routing contracts**, that is a code change, not a prompt-only change.

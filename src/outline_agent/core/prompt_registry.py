@@ -30,7 +30,6 @@ class PromptRegistry:
             get_config_root,
             get_package_internal_prompt_dir,
             get_package_user_prompt_root,
-            get_project_prompt_root,
         )
 
         def _dedupe(paths: list[Path]) -> tuple[Path, ...]:
@@ -45,22 +44,18 @@ class PromptRegistry:
             return tuple(ordered)
 
         config_prompt_root = get_config_root() / "prompts"
-        project_prompt_root = get_project_prompt_root()
         package_user_root = get_package_user_prompt_root()
         package_internal_root = get_package_internal_prompt_dir()
         standard_user_roots = [
             config_prompt_root / "user",
-            project_prompt_root / "user",
             package_user_root,
         ]
         standard_pack_roots = [
             config_prompt_root / "user/packs",
-            project_prompt_root / "user/packs",
             package_user_root / "packs",
         ]
         standard_internal_roots = [
             config_prompt_root / "internal",
-            project_prompt_root / "internal",
             package_internal_root,
         ]
         custom_user_root = settings.system_prompt_path.parent

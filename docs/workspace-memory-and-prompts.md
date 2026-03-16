@@ -256,6 +256,12 @@ This is operational state, not durable knowledge memory.
 
 ## Prompt surfaces: configurable vs hard-coded
 
+Current prompt source model:
+
+- built-in defaults live under `src/outline_agent/assets/prompts/`
+- optional user overrides live under `~/.outline-agent/prompts/`
+- there is no separate project-root `./prompts/` override layer
+
 ### File-based configurable prompt surfaces
 
 These are the main prompt sources intended for customization:
@@ -264,7 +270,7 @@ These are the main prompt sources intended for customization:
 
 Files:
 
-- `prompts/user/00_system.md`
+- user override: `~/.outline-agent/prompts/user/00_system.md`
 - packaged default: `src/outline_agent/assets/prompts/user/00_system.md`
 
 Purpose:
@@ -275,7 +281,7 @@ Purpose:
 
 Files:
 
-- `prompts/user/packs/*.md`
+- user override: `~/.outline-agent/prompts/user/packs/*.md`
 - packaged default pack: `src/outline_agent/assets/prompts/user/packs/outline_style.md`
 
 Purpose:
@@ -297,7 +303,7 @@ Purpose:
 
 Files:
 
-- `prompts/user/reply_policy.md`
+- user override: `~/.outline-agent/prompts/user/reply_policy.md`
 - packaged default: `src/outline_agent/assets/prompts/user/reply_policy.md`
 
 Purpose:
@@ -311,15 +317,15 @@ These prompts still have important hard-coded protocol/skeleton pieces in code.
 | Location | Kind | Purpose |
 |---|---|---|
 | `src/outline_agent/processing/processor_prompting.py::build_user_prompt` | user prompt template | final reply prompt; injects document memory, thread runtime state, transcript context, doc excerpt, tool outcomes |
-| `src/outline_agent/managers/action_router_manager.py::ACTION_ROUTER_SYSTEM_PROMPT` | protocol prompt | action-router protocol/schema; policy addendum now comes from `prompts/internal/action_router_policy.md` |
-| `src/outline_agent/managers/memory_action_manager.py::MEMORY_ACTION_SYSTEM_PROMPT` | protocol prompt | memory-action protocol/schema; policy addendum now comes from `prompts/internal/memory_action_policy.md` |
-| `src/outline_agent/managers/memory_manager.py::MEMORY_UPDATE_SYSTEM_PROMPT` | protocol prompt | collection memory updater protocol/schema; policy addendum now comes from `prompts/internal/memory_update_policy.md` |
-| `src/outline_agent/managers/document_memory_manager.py::DOCUMENT_MEMORY_UPDATE_SYSTEM_PROMPT` | protocol prompt | document memory updater protocol/schema; policy addendum now comes from `prompts/internal/document_memory_update_policy.md` |
-| `src/outline_agent/managers/document_creation_manager.py::DOCUMENT_CREATION_SYSTEM_PROMPT` | protocol prompt | document creation protocol/schema; policy addendum now comes from `prompts/internal/document_creation_policy.md` |
+| `src/outline_agent/managers/action_router_manager.py::ACTION_ROUTER_SYSTEM_PROMPT` | protocol prompt | action-router protocol/schema; policy addendum now comes from the internal prompt policy file / override path |
+| `src/outline_agent/managers/memory_action_manager.py::MEMORY_ACTION_SYSTEM_PROMPT` | protocol prompt | memory-action protocol/schema; policy addendum now comes from the internal prompt policy file / override path |
+| `src/outline_agent/managers/memory_manager.py::MEMORY_UPDATE_SYSTEM_PROMPT` | protocol prompt | collection memory updater protocol/schema; policy addendum now comes from the internal prompt policy file / override path |
+| `src/outline_agent/managers/document_memory_manager.py::DOCUMENT_MEMORY_UPDATE_SYSTEM_PROMPT` | protocol prompt | document memory updater protocol/schema; policy addendum now comes from the internal prompt policy file / override path |
+| `src/outline_agent/managers/document_creation_manager.py::DOCUMENT_CREATION_SYSTEM_PROMPT` | protocol prompt | document creation protocol/schema; policy addendum now comes from the internal prompt policy file / override path |
 | `src/outline_agent/managers/document_creation_manager.py::_build_user_prompt` | user prompt template | provides current document/doc-memory/thread/comment context for new-document drafting |
-| `src/outline_agent/managers/document_update_manager.py::DOCUMENT_UPDATE_SYSTEM_PROMPT` | protocol prompt | document update protocol/schema; policy addendum now comes from `prompts/internal/document_update_policy.md` |
+| `src/outline_agent/managers/document_update_manager.py::DOCUMENT_UPDATE_SYSTEM_PROMPT` | protocol prompt | document update protocol/schema; policy addendum now comes from the internal prompt policy file / override path |
 | `src/outline_agent/managers/document_update_manager.py::_build_user_prompt` | user prompt template | provides outline/section context, doc memory, related docs, local file observations |
-| `src/outline_agent/planning/tool_planner.py::UNIFIED_TOOL_PLANNER_SYSTEM_PROMPT` | protocol prompt | tool planner protocol/schema; policy addendum now comes from `prompts/internal/tool_planner_policy.md` |
+| `src/outline_agent/planning/tool_planner.py::UNIFIED_TOOL_PLANNER_SYSTEM_PROMPT` | protocol prompt | tool planner protocol/schema; policy addendum now comes from the internal prompt policy file / override path |
 | `src/outline_agent/planning/tool_planner.py::_build_user_prompt` | user prompt template | provides tool catalog, work-dir inventory, prior rounds, document memory, attachments, and comment context |
 | `src/outline_agent/state/workspace.py::INITIAL_SYSTEM_TEMPLATE` | initialization template | bootstrap template for collection `memory/00_SYSTEM.md` |
 | `src/outline_agent/state/workspace.py::INITIAL_MEMORY_TEMPLATE` | initialization template | bootstrap template for collection `memory/MEMORY.md` |
@@ -329,8 +335,8 @@ These prompts still have important hard-coded protocol/skeleton pieces in code.
 
 Right now:
 
-- `./prompts/user/` controls base reply behavior and style
-- `./prompts/internal/` controls several internal policy addenda
+- built-in prompt defaults live under `src/outline_agent/assets/prompts/`
+- user or maintainer overrides live under `~/.outline-agent/prompts/`
 - core protocol/schema text still lives in Python
 
 The following are **not** yet externalized into prompt files:
@@ -343,8 +349,8 @@ The following are **not** yet externalized into prompt files:
 
 So the current design is:
 
-- **reply style / base assistant behavior**: file-configurable under `prompts/user/`
-- **internal planner / updater heuristics**: file-configurable under `prompts/internal/`
+- **reply style / base assistant behavior**: file-configurable under `~/.outline-agent/prompts/user/`
+- **internal planner / updater heuristics**: file-configurable under `~/.outline-agent/prompts/internal/`
 - **protocol/schema and context assembly**: still hard-coded in Python
 
 ### Debugging notes

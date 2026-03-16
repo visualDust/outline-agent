@@ -1,61 +1,116 @@
-# Optional user-scoped configuration for `~/.outline-agent/config.yaml`.
+# Example user-scoped configuration for `~/.outline-agent/config.yaml`.
 # Environment variables and CLI flags can still override individual fields at runtime.
 
 server:
+  # HTTP bind host for the local webhook service.
   host: 127.0.0.1
+  # HTTP bind port for the local webhook service.
   port: 8787
 
 outline:
+  # Your Outline API base URL. `/api` is added automatically if you omit it.
   api_base_url: ""
+  # API key created from the Outline user account that should act as the agent.
   api_key: ""
+  # Webhook signing secret from Outline admin webhook configuration.
   webhook_signing_secret: ""
+  # Optional: HTTP timeout for Outline API requests, in seconds.
+  # timeout_seconds: 30
 
 trigger:
+  # `mention` = only respond when mentioned or replied to; `all` = respond to all comments.
   mode: mention
+  # Mention aliases that can trigger the agent in comment text.
   mention_aliases:
     - "@agent"
+  # Optional: plain-text fallback mention detection when structured mentions are missing.
+  # mention_alias_fallback_enabled: false
+  # Optional: reply-to-agent comments trigger the agent even without a fresh mention.
+  # on_reply_to_agent: true
+  # Optional: restrict the agent to specific Outline collection IDs.
+  # collection_allowlist: []
 
 model:
+  # Main model ref. `null` means “use model_profiles.default”.
   ref: null
+  # Timeout for model API requests, in seconds.
   timeout_seconds: 180
+  # Optional: override specific stages with different models.
+  # action_router_ref: null
+  # memory_ref: null
+  # document_update_ref: null
+  # tool_ref: null
+  # document_memory_ref: null
+  # Optional: cap model output size.
+  # max_output_tokens: 800
 
 model_profiles:
+  # Default `alias/model-name` ref used when `model.ref` is null.
   default: demo/gpt-4.1-mini
   profiles:
     demo:
+      # Provider adapter name used by the runtime.
       provider: openai-responses
+      # Base URL for your model gateway / API service.
       base_url: https://your-gateway.example.com/openai/v1
+      # API key for the model provider or gateway above.
       api_key: ""
+      # Allowed model names under this alias. The first one is the default.
       models:
         - gpt-4.1-mini
 
 prompts:
+  # Built-in or custom prompt packs to append to the base system prompt.
   system_prompt_packs:
     - outline_style
+  # Optional: override the base user system prompt file.
+  # Relative paths resolve from your active config root, typically ~/.outline-agent/.
   # system_prompt_path: prompts/user/00_system.md
+  # Optional: override where user prompt packs are loaded from.
+  # Relative paths resolve from your active config root, typically ~/.outline-agent/.
   # prompt_pack_dir: prompts/user/packs
+  # Optional: override where internal maintainer prompts are loaded from.
+  # Relative paths resolve from your active config root, typically ~/.outline-agent/.
   # internal_prompt_dir: prompts/internal
 
 features:
+  # Enable collection-level memory action planning.
   memory_actions: true
+  # Enable writing back durable collection memory after replies.
   memory_updates: true
+  # Enable drafting and applying Outline document updates.
   document_updates: true
+  # Enable local/file/shell tool use.
   tool_use: true
+  # Enable writing back document-local memory after replies.
   document_memory: true
+  # Enable reaction emoji updates during processing.
   reactions: true
+  # Enable retrieval of related documents from the same collection as extra context.
   related_documents: true
+  # Enable progress comments such as “Working on it...” while tools are running.
   progress_comments: true
+  # Optional: enable lookup of other comment threads in the same document when needed.
+  # same_document_comments: true
 
 runtime:
+  # If true, plan and simulate side effects without actually mutating Outline state.
   dry_run: false
-  # Planning loop limits: up to 10 planning/execution rounds.
-  # The planner may propose up to 6 steps, but execution runs in 2-step chunks by default.
+  # Maximum number of plan/replan rounds for one request.
   tool_execution_max_rounds: 10
+  # Maximum number of steps the planner may propose in one round.
   tool_execution_max_steps: 6
+  # Number of steps actually executed before replanning.
   tool_execution_chunk_size: 2
-  # Relative runtime paths resolve from this config file's directory.
+  # Optional: collection workspace root. Relative paths resolve from this config file's directory.
   # workspace_root: data/agents
+  # Optional: raw webhook log directory.
+  # webhook_log_dir: data/webhooks
+  # Optional: dedupe store for processed webhook events.
+  # dedupe_store_path: data/processed_events.json
 
 logging:
+  # Application log level.
   level: DEBUG
+  # Optional: main service log file path.
   # file_path: logs/outline-agent.log
