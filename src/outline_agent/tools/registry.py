@@ -5,6 +5,7 @@ from typing import Iterable
 from ..clients.model_client import ModelClientError
 from ..clients.outline_client import OutlineClientError
 from ..core.logging import logger
+from .approval import ToolApprovalRequest, build_tool_approval_policy
 from .base import AgentTool, ToolContext, ToolError, ToolResult, ToolSpec
 
 
@@ -40,6 +41,10 @@ class ToolRegistry:
         except KeyError as exc:
             return ToolResult(ok=False, tool=name, summary=str(exc), error=str(exc))
 
+        approval_result = await self._authorize(tool.spec, dict(args), context)
+        if approval_result is not None:
+            return approval_result
+
         try:
             result = await tool.run(dict(args), context)
         except (ToolError, OutlineClientError, ModelClientError, ValueError, FileNotFoundError) as exc:
@@ -55,4 +60,98 @@ class ToolRegistry:
                 summary=f"{name}: tool returned mismatched result name {result.tool}",
                 error="mismatched-tool-name",
             )
-        return result
+        return self._attach_approval_metadata(
+            result,
+            spec=tool.spec,
+            context=context,
+            status="approved" if tool.spec.requires_confirmation else "not-required",
+            reason="approved by current policy" if tool.spec.requires_confirmation else None,
+        )
+
+    async def _authorize(
+        self,
+        spec: ToolSpec,
+        args: dict[str, object],
+        context: ToolContext,
+    ) -> ToolResult | None:
+        policy = context.tool_approval_policy or build_tool_approval_policy(context.settings)
+        request = ToolApprovalRequest(
+            tool_name=spec.name,
+            args=dict(args),
+            side_effect_level=spec.side_effect_level,
+            requires_confirmation=spec.requires_confirmation,
+            spec=spec,
+        )
+        try:
+            decision = await policy.authorize(request, context)
+        except (ToolError, ValueError) as exc:
+            return ToolResult(
+                ok=False,
+                tool=spec.name,
+                summary=f"{spec.name}: approval failed: {exc}",
+                error="approval-error",
+                data={
+                    "approval_reason": str(exc),
+                    "approval": {
+                        "required": spec.requires_confirmation,
+                        "status": "error",
+                        "mode": context.settings.tool_approval_mode,
+                        "reason": str(exc),
+                    },
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Unexpected approval policy failure for {}", spec.name)
+            return ToolResult(
+                ok=False,
+                tool=spec.name,
+                summary=f"{spec.name}: approval failed: unexpected error: {exc}",
+                error="approval-error",
+                data={
+                    "approval_reason": str(exc),
+                    "approval": {
+                        "required": spec.requires_confirmation,
+                        "status": "error",
+                        "mode": context.settings.tool_approval_mode,
+                        "reason": str(exc),
+                    },
+                },
+            )
+
+        if decision.approved:
+            return None
+
+        reason = (decision.reason or "tool execution was not approved").strip()
+        return ToolResult(
+            ok=False,
+            tool=spec.name,
+            summary=f"{spec.name}: approval denied: {reason}",
+            error="approval-denied",
+            data={
+                "approval_reason": reason,
+                "approval": {
+                    "required": spec.requires_confirmation,
+                    "status": "denied",
+                    "mode": context.settings.tool_approval_mode,
+                    "reason": reason,
+                },
+            },
+        )
+
+    @staticmethod
+    def _attach_approval_metadata(
+        result: ToolResult,
+        *,
+        spec: ToolSpec,
+        context: ToolContext,
+        status: str,
+        reason: str | None,
+    ) -> ToolResult:
+        data = dict(result.data)
+        data["approval"] = {
+            "required": spec.requires_confirmation,
+            "status": status,
+            "mode": context.settings.tool_approval_mode,
+            "reason": reason,
+        }
+        return result.model_copy(update={"data": data})

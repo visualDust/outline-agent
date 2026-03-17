@@ -1,3 +1,10 @@
+from .approval import (
+    AlwaysAllowToolApprovalPolicy,
+    ToolApprovalDecision,
+    ToolApprovalPolicy,
+    ToolApprovalRequest,
+    build_tool_approval_policy,
+)
 from .base import ToolContext, ToolError, ToolResult, ToolSpec
 from .defaults import build_default_tool_registry
 from .document_actions import ApplyDocumentUpdateTool, DraftDocumentUpdateTool, DraftNewDocumentTool
@@ -18,10 +25,12 @@ from .workspace_tools import (
 
 __all__ = [
     "ApplyDocumentUpdateTool",
+    "AlwaysAllowToolApprovalPolicy",
     "DraftDocumentUpdateTool",
     "DraftNewDocumentTool",
     "CreateDocumentTool",
     "build_default_tool_registry",
+    "build_tool_approval_policy",
     "DownloadAttachmentTool",
     "EditFileTool",
     "GetThreadHistoryTool",
@@ -29,6 +38,9 @@ __all__ = [
     "ListDirTool",
     "ReadFileTool",
     "RunShellTool",
+    "ToolApprovalDecision",
+    "ToolApprovalPolicy",
+    "ToolApprovalRequest",
     "ToolContext",
     "ToolError",
     "ToolRegistry",

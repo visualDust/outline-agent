@@ -72,6 +72,7 @@ class DownloadAttachmentTool:
                 },
             },
             side_effect_level="external",
+            requires_confirmation=True,
         )
 
     async def run(self, args: dict[str, Any], context: ToolContext) -> ToolResult:
@@ -127,6 +128,7 @@ class CreateDocumentTool:
                 },
             },
             side_effect_level="write",
+            requires_confirmation=True,
         )
 
     async def run(self, args: dict[str, Any], context: ToolContext) -> ToolResult:

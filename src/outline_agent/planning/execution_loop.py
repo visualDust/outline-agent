@@ -42,7 +42,9 @@ class UnifiedExecutionLoop:
         plan: UnifiedToolPlan,
         context: ToolContext,
         *,
-        on_step: Callable[[str, UnifiedToolPlan, int, str, dict[str, Any], ToolResult | None], Awaitable[None] | None]
+        on_step: Callable[
+            [str, UnifiedToolPlan, int, str, dict[str, Any], bool, ToolResult | None], Awaitable[None] | None
+        ]
         | None = None,
     ) -> PlanExecutionSummary:
         sanitized = sanitize_unified_tool_plan(
@@ -106,13 +108,30 @@ class UnifiedExecutionLoop:
                     steps=executed,
                     error=document_action_error,
                 )
+            spec = self.registry.get(step.tool).spec
             if on_step is not None:
-                callback_result = on_step("before_step", sanitized, index, step.tool, resolved_args, None)
+                callback_result = on_step(
+                    "before_step",
+                    sanitized,
+                    index,
+                    step.tool,
+                    resolved_args,
+                    spec.requires_confirmation,
+                    None,
+                )
                 if callback_result is not None:
                     await callback_result
             result = await self.registry.execute(step.tool, resolved_args, context)
             if on_step is not None:
-                callback_result = on_step("after_step", sanitized, index, step.tool, resolved_args, result)
+                callback_result = on_step(
+                    "after_step",
+                    sanitized,
+                    index,
+                    step.tool,
+                    resolved_args,
+                    spec.requires_confirmation,
+                    result,
+                )
                 if callback_result is not None:
                     await callback_result
             executed_step = ExecutedPlanStep(index=index, tool=step.tool, args=resolved_args, result=result)

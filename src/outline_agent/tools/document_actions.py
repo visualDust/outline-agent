@@ -115,6 +115,7 @@ class ApplyDocumentUpdateTool:
                 },
             },
             side_effect_level="write",
+            requires_confirmation=True,
         )
 
     async def run(self, args: dict[str, Any], context: ToolContext) -> ToolResult:

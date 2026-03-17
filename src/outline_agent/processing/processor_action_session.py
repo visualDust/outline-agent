@@ -6,17 +6,16 @@ from ..clients.outline_client import OutlineClient, OutlineDocument
 from ..core.config import AppSettings
 from ..runtime.tool_runtime import UploadedAttachment
 from ..state.workspace import CollectionWorkspace, DocumentWorkspace, ThreadWorkspace
-from .action_plan_results import (
-    describe_action_result_for_progress as _describe_action_result_for_progress,
-)
-from .action_plan_structure import (
-    describe_action_step_for_progress as _describe_action_step_for_progress,
-)
+from .action_plan_results import describe_action_result_for_progress as _describe_action_result_for_progress
+from .action_plan_structure import describe_action_step_for_progress as _describe_action_step_for_progress
 from .processor_progress import (
     describe_round_retry_for_progress as _describe_round_retry_for_progress,
 )
 from .processor_progress import (
     describe_round_stop_for_progress as _describe_round_stop_for_progress,
+)
+from .processor_progress import (
+    describe_tool_start_for_progress as _describe_tool_start_for_progress,
 )
 from .processor_progress import (
     format_tool_context as _format_tool_context,
@@ -154,11 +153,14 @@ class ActionLoopSession:
         stage: str,
         tool_name: str,
         resolved_args: dict[str, object],
+        requires_confirmation: bool,
         result: object,
     ) -> None:
         if stage == "before_step":
             description = _describe_action_step_for_progress(tool_name, resolved_args)
-            self.remember_progress_action(f"Started: {description}.")
+            self.remember_progress_action(
+                _describe_tool_start_for_progress(description, requires_confirmation=requires_confirmation)
+            )
         elif result is not None:
             self.remember_progress_action(_describe_action_result_for_progress(tool_name, resolved_args, result))
         await self.sync_progress(

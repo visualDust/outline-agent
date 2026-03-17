@@ -5,6 +5,13 @@ from .processor_prompting import preview, truncate
 from .processor_types import ToolRoundSummary
 
 
+def describe_tool_start_for_progress(description: str, *, requires_confirmation: bool) -> str:
+    message = f"Started: {description}."
+    if requires_confirmation:
+        return message[:-1] + " (approval-capable step auto-approved by current policy)."
+    return message
+
+
 def format_tool_preview(round_summaries: list[ToolRoundSummary]) -> str | None:
     parts = [f"round {item.round_index}: {item.preview}" for item in round_summaries if item.preview]
     return " ; ".join(parts) if parts else None
@@ -20,36 +27,55 @@ def format_tool_context(round_summaries: list[ToolRoundSummary]) -> str | None:
 
 
 def describe_tool_result_for_progress(result: ToolStepResult) -> str:
+    if result.approval_status == "denied":
+        target = progress_inline(result.target or result.tool, limit=80)
+        return f"Paused: `{target}` is awaiting approval."
+    if result.approval_status == "error":
+        target = progress_inline(result.target or result.tool, limit=80)
+        return f"Stopped: approval check for `{target}` failed."
+
     if result.tool == "list_dir":
         target = result.target or "."
         preview_tail = extract_result_tail(result.summary)
         if preview_tail:
-            return f"Finished: listed `{target}` → {progress_inline(preview_tail, limit=120)}."
-        return f"Finished: listed `{target}`."
+            return _append_auto_approval_note(
+                f"Finished: listed `{target}` → {progress_inline(preview_tail, limit=120)}.",
+                result,
+            )
+        return _append_auto_approval_note(f"Finished: listed `{target}`.", result)
 
     if result.tool == "read_file":
         target = result.target or "file"
         if result.stdout:
-            return f"Finished: read `{target}` → `{progress_inline(result.stdout, limit=100)}`."
-        return f"Finished: read `{target}`."
+            return _append_auto_approval_note(
+                f"Finished: read `{target}` → `{progress_inline(result.stdout, limit=100)}`.",
+                result,
+            )
+        return _append_auto_approval_note(f"Finished: read `{target}`.", result)
 
     if result.tool == "write_file":
         target = result.target or "file"
         action = "appended to" if result.summary.startswith("append_file[") else "created or updated"
-        return f"Finished: {action} `{target}`."
+        return _append_auto_approval_note(f"Finished: {action} `{target}`.", result)
 
     if result.tool == "edit_file":
         target = result.target or "file"
-        return f"Finished: edited `{target}`."
+        return _append_auto_approval_note(f"Finished: edited `{target}`.", result)
 
     if result.tool == "run_shell":
         command = progress_inline(result.target or "command", limit=80)
         if result.ok:
             if result.stdout:
-                return f"Finished: ran `{command}` → output `{progress_inline(result.stdout, limit=100)}`."
+                return _append_auto_approval_note(
+                    f"Finished: ran `{command}` → output `{progress_inline(result.stdout, limit=100)}`.",
+                    result,
+                )
             if result.stderr:
-                return f"Finished: ran `{command}` → stderr `{progress_inline(result.stderr, limit=100)}`."
-            return f"Finished: ran `{command}`."
+                return _append_auto_approval_note(
+                    f"Finished: ran `{command}` → stderr `{progress_inline(result.stderr, limit=100)}`.",
+                    result,
+                )
+            return _append_auto_approval_note(f"Finished: ran `{command}`.", result)
 
         details: list[str] = []
         if result.exit_code is not None:
@@ -66,17 +92,23 @@ def describe_tool_result_for_progress(result: ToolStepResult) -> str:
         if result.ok:
             preview_tail = extract_result_tail(result.summary)
             if preview_tail:
-                return f"Finished: downloaded attachment to `{target}` → `{progress_inline(preview_tail, limit=100)}`."
-            return f"Finished: downloaded attachment to `{target}`."
+                return _append_auto_approval_note(
+                    f"Finished: downloaded attachment to `{target}` → `{progress_inline(preview_tail, limit=100)}`.",
+                    result,
+                )
+            return _append_auto_approval_note(f"Finished: downloaded attachment to `{target}`.", result)
         return f"Stopped: downloading attachment to `{target}` failed."
 
     if result.tool == "upload_attachment":
         target = result.target or "file"
         if result.ok:
-            return f"Finished: uploaded `{target}` back to the Outline document as an attachment."
+            return _append_auto_approval_note(
+                f"Finished: uploaded `{target}` back to the Outline document as an attachment.",
+                result,
+            )
         return f"Stopped: uploading `{target}` as an Outline attachment failed."
 
-    return f"Finished: {result.summary}."
+    return _append_auto_approval_note(f"Finished: {result.summary}.", result)
 
 
 def describe_round_stop_for_progress(round_index: int, status: str) -> str:
@@ -152,3 +184,11 @@ def extract_result_tail(summary: str) -> str | None:
 def progress_inline(text: str, limit: int) -> str:
     compact = preview(text, limit=limit).replace("`", "'")
     return compact.strip()
+
+
+def _append_auto_approval_note(message: str, result: ToolStepResult) -> str:
+    if not (result.requires_confirmation and result.approval_status == "approved"):
+        return message
+    if message.endswith("."):
+        return message[:-1] + " (auto-approved by current policy)."
+    return message + " (auto-approved by current policy)."

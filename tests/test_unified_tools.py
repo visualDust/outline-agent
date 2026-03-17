@@ -12,7 +12,6 @@ from outline_agent.planning.execution_loop import (
     UnifiedExecutionLoop,
     _hydrate_document_action_args,
     _hydrate_drafting_context_args,
-    _sanitize_document_action_args,
     _validate_document_action_args,
 )
 from outline_agent.planning.tool_plan_schema import (
@@ -21,10 +20,15 @@ from outline_agent.planning.tool_plan_schema import (
     UnifiedToolPlanStep,
     sanitize_unified_tool_plan,
 )
-from outline_agent.processing.action_plan_structure import select_next_action_plan_chunk
+from outline_agent.processing.processor_progress import (
+    describe_tool_result_for_progress,
+    describe_tool_start_for_progress,
+)
+from outline_agent.runtime.tool_runtime import ToolStepResult
 from outline_agent.tools import (
     CreateDocumentTool,
     GetCurrentDocumentTool,
+    ToolApprovalDecision,
     ToolContext,
     ToolRegistry,
     build_default_extract_text_tools,
@@ -121,6 +125,39 @@ def test_get_current_document_tool_returns_document_text(tmp_path: Path) -> None
     assert result.data["document_id"] == "doc-1"
     assert result.data["text"] == "# Current\n\nHello world"
 
+
+def test_tool_registry_blocks_execution_when_approval_policy_denies(tmp_path: Path) -> None:
+    class DenyAllPolicy:
+        async def authorize(self, request, context):
+            del context
+            return ToolApprovalDecision(approved=False, reason=f"blocked by test policy: {request.tool_name}")
+
+    class ExplodingTool:
+        @property
+        def spec(self):
+            from outline_agent.tools.base import ToolSpec
+
+            return ToolSpec(name="dangerous_tool", description="x", side_effect_level="write")
+
+        async def run(self, args, context):
+            del args, context
+            raise AssertionError("tool body should not run when approval is denied")
+
+    registry = ToolRegistry()
+    registry.register(ExplodingTool())
+    context = _build_context(tmp_path)
+    context.tool_approval_policy = DenyAllPolicy()
+
+    result = asyncio.run(registry.execute("dangerous_tool", {"x": 1}, context))
+
+    assert result.ok is False
+    assert result.error == "approval-denied"
+    assert result.data["approval_reason"] == "blocked by test policy: dangerous_tool"
+    assert result.summary == "dangerous_tool: approval denied: blocked by test policy: dangerous_tool"
+    assert result.data["approval"]["status"] == "denied"
+    assert result.data["approval"]["mode"] == "always_allow"
+
+
 def test_extract_text_from_pdf_reads_literal_strings(tmp_path: Path) -> None:
     registry = _build_registry()
     context = _build_context(tmp_path)
@@ -200,6 +237,71 @@ def test_unified_execution_loop_can_compose_download_extract_and_create_document
     ]
     assert summary.preview is not None
     assert "Created document 'Imported Attachment'." in summary.preview
+
+
+def test_unified_execution_loop_stops_when_tool_approval_is_denied(tmp_path: Path) -> None:
+    class DenyShellPolicy:
+        async def authorize(self, request, context):
+            del context
+            if request.tool_name == "run_shell":
+                return ToolApprovalDecision(approved=False, reason="shell execution is awaiting approval")
+            return ToolApprovalDecision(approved=True)
+
+    registry = _build_registry()
+    context = _build_context(tmp_path)
+    context.tool_approval_policy = DenyShellPolicy()
+    loop = UnifiedExecutionLoop(registry, max_steps=2)
+    plan = UnifiedToolPlan(
+        should_act=True,
+        steps=[UnifiedToolPlanStep(tool="run_shell", args={"command": "echo should-not-run"})],
+    )
+
+    summary = asyncio.run(loop.execute(plan, context))
+
+    assert summary.status == "failed"
+    assert len(summary.steps) == 1
+    assert summary.steps[0].tool == "run_shell"
+    assert summary.steps[0].result.ok is False
+    assert summary.steps[0].result.error == "approval-denied"
+    assert summary.error == "approval-denied"
+
+
+def test_progress_messages_surface_auto_approved_steps() -> None:
+    start = describe_tool_start_for_progress("run `echo hi`", requires_confirmation=True)
+
+    assert "auto-approved by current policy" in start
+
+    progress = describe_tool_result_for_progress(
+        ToolStepResult(
+            tool="run_shell",
+            ok=True,
+            summary="run_shell[echo hi] -> exit 0 ; stdout=hi",
+            target="echo hi",
+            stdout="hi",
+            requires_confirmation=True,
+            approval_status="approved",
+            approval_mode="always_allow",
+        )
+    )
+
+    assert "auto-approved by current policy" in progress
+
+
+def test_progress_message_surfaces_approval_denial() -> None:
+    progress = describe_tool_result_for_progress(
+        ToolStepResult(
+            tool="run_shell",
+            ok=False,
+            summary="run_shell: approval denied: waiting for approval",
+            target="echo hi",
+            requires_confirmation=True,
+            approval_status="denied",
+            approval_reason="waiting for approval",
+        )
+    )
+
+    assert progress == "Paused: `echo hi` is awaiting approval."
+
 
 def test_validate_document_update_args_blocks_apply_after_blocked_draft() -> None:
     step_context = [

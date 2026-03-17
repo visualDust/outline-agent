@@ -62,6 +62,12 @@ def format_round_observation_for_planner(
             step_lines.append(f"  stdout={preview(step_result.stdout, 240)}")
         if step_result.stderr:
             step_lines.append(f"  stderr={preview(step_result.stderr, 240)}")
+        if step_result.requires_confirmation:
+            approval_status = step_result.approval_status or "approved"
+            approval_mode = step_result.approval_mode or "unknown"
+            step_lines.append(f"  approval=required; status={approval_status}; mode={approval_mode}")
+            if step_result.approval_reason:
+                step_lines.append(f"  approval_reason={preview(step_result.approval_reason, 240)}")
         if step.result.error:
             step_lines.append(f"  error={preview(step.result.error, 240)}")
         if step_result.attachment and step_result.attachment.url:
@@ -185,6 +191,11 @@ def tool_result_to_step_result(tool_name: str, args: dict[str, Any], result: Any
             target = args.get("path") if isinstance(args.get("path"), str) else None
         elif tool_name == "run_shell":
             target = args.get("command") if isinstance(args.get("command"), str) else None
+    approval = data.get("approval") if isinstance(data.get("approval"), dict) else {}
+    approval_required = bool(approval.get("required"))
+    approval_status = approval.get("status") if isinstance(approval.get("status"), str) else None
+    approval_mode = approval.get("mode") if isinstance(approval.get("mode"), str) else None
+    approval_reason = approval.get("reason") if isinstance(approval.get("reason"), str) else None
     return ToolStepResult(
         tool=tool_name,
         ok=result.ok,
@@ -194,6 +205,10 @@ def tool_result_to_step_result(tool_name: str, args: dict[str, Any], result: Any
         stderr=stderr,
         exit_code=exit_code,
         attachment=attachment,
+        requires_confirmation=approval_required,
+        approval_status=approval_status,
+        approval_mode=approval_mode,
+        approval_reason=approval_reason,
     )
 
 

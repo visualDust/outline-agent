@@ -32,6 +32,7 @@ class _RuntimeBackedWorkspaceTool:
                 },
             },
             side_effect_level=self.side_effect_level,  # type: ignore[arg-type]
+            requires_confirmation=self.side_effect_level != "read",
         )
 
     async def run(self, args: dict[str, Any], context: ToolContext) -> ToolResult:

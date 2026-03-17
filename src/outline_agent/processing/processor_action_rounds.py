@@ -162,6 +162,7 @@ async def execute_action_round(
         _index: int,
         tool_name: str,
         resolved_args: dict[str, object],
+        requires_confirmation: bool,
         result: Any,
     ) -> None:
         await session.note_step_progress(
@@ -169,6 +170,7 @@ async def execute_action_round(
             stage=stage,
             tool_name=tool_name,
             resolved_args=resolved_args,
+            requires_confirmation=requires_confirmation,
             result=result,
         )
 

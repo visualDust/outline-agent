@@ -1,0 +1,33 @@
+# Example Docker Compose deployment for outline-agent.
+# Copy to docker-compose.yml and customize for your environment.
+
+services:
+  outline-agent:
+    image: ghcr.io/visualdust/outline-agent:latest
+    container_name: outline-agent
+    ports:
+      - "8787:8787"
+    volumes:
+      # Persistent config directory. The app reads /config/config.yaml.
+      - ./config:/config
+      # Persistent runtime data directory for logs, webhook captures, workspaces, and caches.
+      - ./data:/data
+    environment:
+      # The app will read this config file inside the mounted /config volume.
+      - OUTLINE_AGENT_CONFIG_PATH=/config/config.yaml
+
+      # Optional: environment variables can override fields from /config/config.yaml.
+      # - OUTLINE_API_BASE_URL=https://outline.example.com/api
+      # - OUTLINE_API_KEY=ol_api_xxx
+      # - OUTLINE_WEBHOOK_SIGNING_SECRET=ol_whs_xxx
+      # - MODEL_REF=demo/gpt-4.1-mini
+      # - LOG_LEVEL=INFO
+    restart: unless-stopped
+
+    # Optional health check.
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8787/healthz"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 20s

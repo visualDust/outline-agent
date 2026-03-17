@@ -12,6 +12,7 @@ license = { text = "MIT" }
 authors = [
   { name = "Gavin Gong", email = "gavin@gong.host" },
 ]
+urls = { Homepage = "https://github.com/visualDust/outline-agent", Repository = "https://github.com/visualDust/outline-agent", Issues = "https://github.com/visualDust/outline-agent/issues" }
 dependencies = [
   "fastapi>=0.110",
   "httpx>=0.26",

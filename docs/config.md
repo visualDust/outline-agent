@@ -5,6 +5,7 @@ This document describes the **recommended public configuration surface** for Out
 It is intended to complement:
 
 - [`config.example.yaml`](../config.example.yaml) for a commented example
+- [`.env.example`](../.env.example) for environment-variable names and override examples
 - [`README.md`](../README.md) for quick-start setup
 
 The fields listed here are the ones most users are expected to configure directly. The runtime also contains additional low-level tuning options, but those are intentionally omitted from the primary reference unless they are commonly useful.
@@ -21,6 +22,27 @@ Configuration is loaded in this order:
 4. Built-in defaults
 
 If the config file does not exist yet, `outline-agent start` creates a starter config and exits so you can edit it.
+
+For normal local development, `~/.outline-agent/config.yaml` is the primary config file.
+Exported environment variables can override values from that YAML config.
+`.env` files are **not** auto-loaded automatically; use `.env.example` as a reference and source a `.env` file yourself if desired.
+
+Example shell workflow:
+
+```bash
+set -a
+source .env
+set +a
+outline-agent start
+```
+
+For containerized deployments, a common pattern is:
+
+- mount a config file such as `/config/config.yaml`
+- set `OUTLINE_AGENT_CONFIG_PATH=/config/config.yaml`
+- mount a separate `/data` volume for runtime state
+
+See [`../docker/config.yaml.example`](../docker/config.yaml.example) and [`../docker-compose.example.yml`](../docker-compose.example.yml).
 
 ---
 
@@ -214,6 +236,28 @@ This keeps the architecture closer to a weak planner plus iterative tool loop ra
 
 ---
 
+## Common advanced flat keys
+
+Most user-facing config is grouped under sections like `outline`, `model`, `features`, and `runtime`.
+However, a few still-useful tuning fields currently map directly to flat top-level settings.
+
+| Field | Default | Purpose |
+| --- | --- | --- |
+| `tool_shell_timeout_seconds` | `120` | Shell timeout for `run_shell` tool execution. |
+| `tool_approval_mode` | `always_allow` | Approval policy mode for tool execution; current default preserves always-allow behavior while keeping a future approval hook. |
+| `progress_comment_recent_actions` | `6` | How many recent actions to include in progress comments. |
+| `reaction_processing_emoji` | `👀` | Emoji shown while the agent is working. |
+| `reaction_done_emoji` | `👍` | Emoji shown when work is complete. |
+| `related_document_limit` | `3` | Number of related documents to include in context. |
+| `related_document_search_limit` | `8` | Search breadth for related-document retrieval. |
+| `related_document_excerpt_chars` | `600` | Max excerpt size per related document. |
+| `related_document_query_max_chars` | `200` | Max query size for related-document search. |
+| `related_document_min_query_chars` | `4` | Minimum query length before related-doc search runs. |
+
+These keys are valid in YAML config and via environment variables even though they are not nested under one of the grouped sections.
+
+---
+
 ## `logging`
 
 | Field | Required | Default | Purpose | Notes |
@@ -240,5 +284,8 @@ For most users, the following is enough to start:
 
 - [`../README.md`](../README.md)
 - [`../config.example.yaml`](../config.example.yaml)
+- [`../.env.example`](../.env.example)
+- [`../docker/config.yaml.example`](../docker/config.yaml.example)
+- [`../docker-compose.example.yml`](../docker-compose.example.yml)
 - [`tools.md`](tools.md)
 - [`data-layout.md`](data-layout.md)

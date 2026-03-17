@@ -61,6 +61,10 @@ class ToolStepResult:
     stderr: str | None = None
     exit_code: int | None = None
     attachment: UploadedAttachment | None = None
+    requires_confirmation: bool = False
+    approval_status: str | None = None
+    approval_mode: str | None = None
+    approval_reason: str | None = None
 
 
 @dataclass(frozen=True)

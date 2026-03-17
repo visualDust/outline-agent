@@ -141,6 +141,33 @@ logging:
   level: DEBUG
   # Optional: main service log file path.
   # file_path: logs/outline-agent.log
+
+# Optional advanced tuning fields.
+# These are still real config keys, but they map directly to flat AppSettings fields
+# instead of the grouped YAML sections above.
+
+# Shell command timeout for the `run_shell` tool, in seconds.
+# tool_shell_timeout_seconds: 120
+
+# Tool approval mode. `always_allow` keeps current behavior while preserving
+# a future hook for interactive approval.
+# tool_approval_mode: always_allow
+
+# Number of recent actions shown in progress comments.
+# progress_comment_recent_actions: 6
+
+# Emoji used while the agent is actively processing.
+# reaction_processing_emoji: "👀"
+
+# Emoji used when the agent finishes successfully.
+# reaction_done_emoji: "👍"
+
+# Related-document retrieval tuning.
+# related_document_limit: 3
+# related_document_search_limit: 8
+# related_document_excerpt_chars: 600
+# related_document_query_max_chars: 200
+# related_document_min_query_chars: 4
 """
 
 
@@ -369,6 +396,7 @@ class AppSettings(BaseSettings):
     tool_list_dir_max_entries: int = 40
     tool_shell_timeout_seconds: float = 120.0
     tool_shell_max_output_chars: int = 2000
+    tool_approval_mode: Literal["always_allow"] = "always_allow"
     tool_recent_runs: int = 4
     tool_run_summary_max_chars: int = 240
     progress_comment_enabled: bool = True

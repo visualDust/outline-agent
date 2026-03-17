@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
 from ..clients.outline_client import OutlineClient
 from ..clients.outline_models import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
+
+if TYPE_CHECKING:
+    from .approval import ToolApprovalPolicy
 
 
 class ToolSpec(BaseModel):
@@ -38,6 +41,7 @@ class ToolContext:
     work_dir: Path | None = None
     document: OutlineDocument | None = None
     collection: OutlineCollection | None = None
+    tool_approval_policy: ToolApprovalPolicy | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
