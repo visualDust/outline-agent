@@ -3,19 +3,11 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from ..core.logging import logger
-from .thread_transcript import active_comments as _active_transcript_comments
-from .thread_transcript import build_deleted_thread_transcript as _build_deleted_thread_transcript
-from .thread_transcript import build_thread_transcript as _build_thread_transcript
-from .thread_transcript import load_json_text as _load_transcript_json_text
-from .thread_transcript import render_comments_for_prompt as _render_comments_for_prompt
-from .thread_transcript import summarize_comments_for_prompt as _summarize_comments_for_prompt
-from .thread_transcript import to_json_text as _transcript_to_json_text
-from .thread_transcript import transcript_comment_count as _transcript_comment_count
-from .thread_transcript import transcript_root_exists as _transcript_root_exists
 from .thread_state import build_initial_thread_state, build_thread_state_payload
 from .thread_state import format_thread_state_for_prompt as _format_thread_state_for_prompt
 from .thread_state import normalize_participants as _normalize_participants
@@ -30,6 +22,15 @@ from .thread_state import sort_recent_comments as _sort_recent_comments
 from .thread_state import timestamp_not_older as _timestamp_not_older
 from .thread_state import truncate_text as _truncate
 from .thread_state import upsert_participant as _upsert_participant
+from .thread_transcript import active_comments as _active_transcript_comments
+from .thread_transcript import build_deleted_thread_transcript as _build_deleted_thread_transcript
+from .thread_transcript import build_thread_transcript as _build_thread_transcript
+from .thread_transcript import load_json_text as _load_transcript_json_text
+from .thread_transcript import render_comments_for_prompt as _render_comments_for_prompt
+from .thread_transcript import summarize_comments_for_prompt as _summarize_comments_for_prompt
+from .thread_transcript import to_json_text as _transcript_to_json_text
+from .thread_transcript import transcript_comment_count as _transcript_comment_count
+from .thread_transcript import transcript_root_exists as _transcript_root_exists
 
 INITIAL_SYSTEM_TEMPLATE = """# 00_SYSTEM.md - Collection Agent System Prompt
 
@@ -110,6 +111,7 @@ class CollectionWorkspace:
     documents_dir: Path
     threads_dir: Path
     archived_threads_dir: Path
+    archived_documents_dir: Path
     system_prompt_path: Path
     memory_path: Path
 
@@ -166,6 +168,26 @@ class DocumentWorkspace:
         self.state_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
+        )
+
+    def mark_deleted(
+        self,
+        *,
+        document_title: str | None,
+        reason: str,
+    ) -> None:
+        state = self.read_state()
+        state["document_id"] = self.document_id
+        state["document_title"] = document_title
+        state["deleted"] = True
+        state["deleted_reason"] = reason
+        state["deleted_at"] = datetime.now(timezone.utc).isoformat()
+        self.write_state(state)
+        logger.debug(
+            "Document workspace marked deleted: document_id={}, root_dir={}, reason={}",
+            self.document_id,
+            self.root_dir,
+            reason,
         )
 
 
@@ -302,13 +324,19 @@ class ThreadWorkspace:
         last_comment = transcript_comments[-1] if transcript_comments else None
         last_comment_id = str(last_comment.get("id") or "") if isinstance(last_comment, dict) else None
         last_comment_at = (
-            last_comment.get("created_at") if isinstance(last_comment, dict) and isinstance(last_comment.get("created_at"), str) else None
+            last_comment.get("created_at")
+            if isinstance(last_comment, dict) and isinstance(last_comment.get("created_at"), str)
+            else None
         )
         last_comment_preview = None
         if isinstance(last_comment, dict):
             preview_text = last_comment.get("body_plain")
             if isinstance(preview_text, str):
-                last_comment_preview = _truncate(preview_text, max_comment_chars) if max_comment_chars > 0 else preview_text
+                last_comment_preview = (
+                    _truncate(preview_text, max_comment_chars)
+                    if max_comment_chars > 0
+                    else preview_text
+                )
 
         updated_state = build_thread_state_payload(
             thread_id=self.thread_id,
@@ -853,6 +881,8 @@ class CollectionWorkspaceManager:
     def __init__(self, root: Path):
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
+        self.archived_collections_dir = self.root / "archived_collections"
+        self.archived_collections_dir.mkdir(parents=True, exist_ok=True)
 
     def ensure(self, collection_id: str, collection_name: str | None) -> CollectionWorkspace:
         safe_name = _slugify(collection_name or "collection")
@@ -865,6 +895,7 @@ class CollectionWorkspaceManager:
         documents_dir = workspace_dir / "documents"
         threads_dir = workspace_dir / "threads"
         archived_threads_dir = workspace_dir / "archived_threads"
+        archived_documents_dir = workspace_dir / "archived_documents"
         memory_dir.mkdir(parents=True, exist_ok=True)
         collection_workspace_dir.mkdir(parents=True, exist_ok=True)
         attachments_dir.mkdir(parents=True, exist_ok=True)
@@ -873,6 +904,7 @@ class CollectionWorkspaceManager:
         documents_dir.mkdir(parents=True, exist_ok=True)
         threads_dir.mkdir(parents=True, exist_ok=True)
         archived_threads_dir.mkdir(parents=True, exist_ok=True)
+        archived_documents_dir.mkdir(parents=True, exist_ok=True)
 
         system_prompt_path = memory_dir / "00_SYSTEM.md"
         memory_path = memory_dir / "MEMORY.md"
@@ -914,6 +946,7 @@ class CollectionWorkspaceManager:
             documents_dir=documents_dir,
             threads_dir=threads_dir,
             archived_threads_dir=archived_threads_dir,
+            archived_documents_dir=archived_documents_dir,
             system_prompt_path=system_prompt_path,
             memory_path=memory_path,
         )
@@ -1055,6 +1088,246 @@ class CollectionWorkspaceManager:
         )
         return destination
 
+    def archive_document(
+        self,
+        workspace: CollectionWorkspace,
+        document_workspace: DocumentWorkspace,
+        *,
+        reason: str,
+    ) -> Path:
+        workspace.archived_documents_dir.mkdir(parents=True, exist_ok=True)
+        destination = workspace.archived_documents_dir / document_workspace.root_dir.name
+        if destination.exists():
+            suffix = 1
+            while (workspace.archived_documents_dir / f"{document_workspace.root_dir.name}-{suffix}").exists():
+                suffix += 1
+            destination = workspace.archived_documents_dir / f"{document_workspace.root_dir.name}-{suffix}"
+        document_workspace.root_dir.rename(destination)
+        logger.debug(
+            "Archived document workspace: document_id={}, from={}, to={}, reason={}",
+            document_workspace.document_id,
+            document_workspace.root_dir,
+            destination,
+            reason,
+        )
+        return destination
+
+    def archive_collection(self, workspace: CollectionWorkspace, *, reason: str) -> Path:
+        self.archived_collections_dir.mkdir(parents=True, exist_ok=True)
+        destination = self.archived_collections_dir / workspace.root_dir.name
+        if destination.exists():
+            suffix = 1
+            while (self.archived_collections_dir / f"{workspace.root_dir.name}-{suffix}").exists():
+                suffix += 1
+            destination = self.archived_collections_dir / f"{workspace.root_dir.name}-{suffix}"
+        workspace.root_dir.rename(destination)
+        logger.debug(
+            "Archived collection workspace: collection_id={}, from={}, to={}, reason={}",
+            workspace.collection_id,
+            workspace.root_dir,
+            destination,
+            reason,
+        )
+        return destination
+
+    def find_collection(self, collection_id: str) -> CollectionWorkspace | None:
+        safe_collection_id = _slugify(collection_id)
+        suffix = f"-{safe_collection_id}"
+        matched_dirs: list[str] = []
+        for workspace_dir in sorted(self.root.iterdir()):
+            if not workspace_dir.is_dir() or workspace_dir == self.archived_collections_dir:
+                continue
+            if workspace_dir.name.endswith(suffix):
+                matched_dirs.append(str(workspace_dir))
+                logger.debug(
+                    "Collection workspace lookup matched: collection_id={}, search_root={}, suffix={}, matched_dir={}",
+                    collection_id,
+                    self.root,
+                    suffix,
+                    workspace_dir,
+                )
+                return self._load_collection_workspace(workspace_dir, collection_id=collection_id)
+        logger.debug(
+            "Collection workspace lookup missed: collection_id={}, search_root={}, suffix={}, matched_dirs={}",
+            collection_id,
+            self.root,
+            suffix,
+            matched_dirs or None,
+        )
+        return None
+
+    def find_archived_collection_dir(self, collection_id: str) -> Path | None:
+        safe_collection_id = _slugify(collection_id)
+        suffix = f"-{safe_collection_id}"
+        matched_dirs: list[str] = []
+        for workspace_dir in sorted(self.archived_collections_dir.iterdir()):
+            if workspace_dir.is_dir() and workspace_dir.name.endswith(suffix):
+                matched_dirs.append(str(workspace_dir))
+                logger.debug(
+                    "Archived collection lookup matched: collection_id={}, search_root={}, suffix={}, matched_dir={}",
+                    collection_id,
+                    self.archived_collections_dir,
+                    suffix,
+                    workspace_dir,
+                )
+                return workspace_dir
+        logger.debug(
+            "Archived collection lookup missed: collection_id={}, search_root={}, suffix={}, matched_dirs={}",
+            collection_id,
+            self.archived_collections_dir,
+            suffix,
+            matched_dirs or None,
+        )
+        return None
+
+    def find_collection_for_document(self, document_id: str) -> CollectionWorkspace | None:
+        scanned_collections: list[str] = []
+        for workspace in self.list_active_collections():
+            scanned_collections.append(str(workspace.root_dir))
+            if self.find_document(workspace, document_id=document_id) is not None:
+                logger.debug(
+                    "Collection lookup by document matched: document_id={}, matched_collection_id={}, "
+                    "matched_workspace={}, scanned_collections={}",
+                    document_id,
+                    workspace.collection_id,
+                    workspace.root_dir,
+                    scanned_collections,
+                )
+                return workspace
+        logger.debug(
+            "Collection lookup by document missed: document_id={}, scanned_collections={}",
+            document_id,
+            scanned_collections or None,
+        )
+        return None
+
+    def list_active_collections(self) -> list[CollectionWorkspace]:
+        workspaces: list[CollectionWorkspace] = []
+        for workspace_dir in sorted(self.root.iterdir()):
+            if not workspace_dir.is_dir() or workspace_dir == self.archived_collections_dir:
+                continue
+            collection_id = self._read_collection_metadata_value(
+                workspace_dir / "memory" / "MEMORY.md",
+                "Collection ID",
+            )
+            if collection_id:
+                workspaces.append(self._load_collection_workspace(workspace_dir, collection_id=collection_id))
+        return workspaces
+
+    def find_document(self, workspace: CollectionWorkspace, *, document_id: str) -> DocumentWorkspace | None:
+        document_dir = self.document_workspace_path(workspace, document_id=document_id)
+        logger.debug(
+            "Document workspace lookup: collection_id={}, document_id={}, candidate_path={}, exists={}",
+            workspace.collection_id,
+            document_id,
+            document_dir,
+            document_dir.is_dir(),
+        )
+        if not document_dir.is_dir():
+            return None
+        return DocumentWorkspace(
+            document_id=document_id,
+            root_dir=document_dir,
+            memory_path=document_dir / "MEMORY.md",
+            state_path=document_dir / "state.json",
+        )
+
+    def find_archived_document_dir(self, workspace: CollectionWorkspace, *, document_id: str) -> Path | None:
+        document_dir = self.archived_document_workspace_path(workspace, document_id=document_id)
+        logger.debug(
+            "Archived document lookup: collection_id={}, document_id={}, candidate_path={}, exists={}",
+            workspace.collection_id,
+            document_id,
+            document_dir,
+            document_dir.is_dir(),
+        )
+        if document_dir.is_dir():
+            return document_dir
+        return None
+
+    def find_archived_document_globally(self, *, document_id: str) -> Path | None:
+        safe_document_id = _slugify(document_id)
+        checked_paths: list[str] = []
+        for workspace in self.list_active_collections():
+            archived_document_dir = workspace.archived_documents_dir / safe_document_id
+            checked_paths.append(str(archived_document_dir))
+            if archived_document_dir.is_dir():
+                logger.debug(
+                    "Global archived document lookup matched active collection archive: document_id={}, "
+                    "candidate_path={}, checked_paths={}",
+                    document_id,
+                    archived_document_dir,
+                    checked_paths,
+                )
+                return archived_document_dir
+        for collection_dir in sorted(self.archived_collections_dir.iterdir()):
+            archived_document_dir = collection_dir / "archived_documents" / safe_document_id
+            checked_paths.append(str(archived_document_dir))
+            if archived_document_dir.is_dir():
+                logger.debug(
+                    "Global archived document lookup matched archived collection archive: document_id={}, "
+                    "candidate_path={}, checked_paths={}",
+                    document_id,
+                    archived_document_dir,
+                    checked_paths,
+                )
+                return archived_document_dir
+            active_document_dir = collection_dir / "documents" / safe_document_id
+            checked_paths.append(str(active_document_dir))
+            if active_document_dir.is_dir():
+                logger.debug(
+                    "Global archived document lookup matched archived collection active-doc subtree: "
+                    "document_id={}, candidate_path={}, checked_paths={}",
+                    document_id,
+                    active_document_dir,
+                    checked_paths,
+                )
+                return active_document_dir
+        logger.debug(
+            "Global archived document lookup missed: document_id={}, checked_paths={}",
+            document_id,
+            checked_paths or None,
+        )
+        return None
+
+    def document_workspace_path(self, workspace: CollectionWorkspace, *, document_id: str) -> Path:
+        return workspace.documents_dir / _slugify(document_id)
+
+    def archived_document_workspace_path(self, workspace: CollectionWorkspace, *, document_id: str) -> Path:
+        return workspace.archived_documents_dir / _slugify(document_id)
+
+    def list_active_thread_workspaces_for_document(
+        self,
+        workspace: CollectionWorkspace,
+        *,
+        document_id: str,
+    ) -> list[ThreadWorkspace]:
+        thread_workspaces: list[ThreadWorkspace] = []
+        if not workspace.threads_dir.exists():
+            return thread_workspaces
+
+        for thread_dir in sorted(workspace.threads_dir.iterdir()):
+            if not thread_dir.is_dir():
+                continue
+            thread_workspace = ThreadWorkspace(
+                thread_id=thread_dir.name,
+                root_dir=thread_dir,
+                state_path=thread_dir / "state.json",
+                events_path=thread_dir / "events.jsonl",
+                comments_path=thread_dir / "comments.json",
+            )
+            state = thread_workspace.read_state()
+            if state.get("document_id") == document_id:
+                thread_workspaces.append(thread_workspace)
+
+        logger.debug(
+            "Listed active thread workspaces for document archive: collection_id={}, document_id={}, count={}",
+            workspace.collection_id,
+            document_id,
+            len(thread_workspaces),
+        )
+        return thread_workspaces
+
     def list_document_thread_entries(
         self,
         workspace: CollectionWorkspace,
@@ -1138,6 +1411,40 @@ class CollectionWorkspaceManager:
             if marker not in text:
                 text += f"\n\n{marker}\n"
         memory_path.write_text(text + "\n", encoding="utf-8")
+
+    def _load_collection_workspace(self, workspace_dir: Path, *, collection_id: str) -> CollectionWorkspace:
+        memory_dir = workspace_dir / "memory"
+        collection_workspace_dir = workspace_dir / "workspace"
+        collection_name = (
+            self._read_collection_metadata_value(memory_dir / "MEMORY.md", "Collection Name") or collection_id
+        )
+        return CollectionWorkspace(
+            collection_id=collection_id,
+            collection_name=collection_name,
+            root_dir=workspace_dir,
+            memory_dir=memory_dir,
+            workspace_dir=collection_workspace_dir,
+            attachments_dir=collection_workspace_dir / "attachments",
+            generated_dir=collection_workspace_dir / "generated",
+            scratch_dir=workspace_dir / "scratch",
+            documents_dir=workspace_dir / "documents",
+            threads_dir=workspace_dir / "threads",
+            archived_threads_dir=workspace_dir / "archived_threads",
+            archived_documents_dir=workspace_dir / "archived_documents",
+            system_prompt_path=memory_dir / "00_SYSTEM.md",
+            memory_path=memory_dir / "MEMORY.md",
+        )
+
+    def _read_collection_metadata_value(self, memory_path: Path, field_name: str) -> str | None:
+        if not memory_path.exists():
+            return None
+        text = memory_path.read_text(encoding="utf-8")
+        match = re.search(rf"^- {re.escape(field_name)}: (.+?)$", text, flags=re.MULTILINE)
+        if match:
+            value = match.group(1).strip()
+            if value:
+                return value
+        return None
 
 
 def build_initial_document_state(*, document_id: str, document_title: str | None) -> dict[str, Any]:

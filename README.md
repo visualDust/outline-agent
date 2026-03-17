@@ -12,17 +12,67 @@ This service listens for Outline comment webhooks, gathers document and thread c
 
 Choose one of these three installation methods:
 
-1. **Docker Compose** — recommended for the easiest deployment
-2. **PyPI install** — `pip install outline-agent`
+1. **PyPI install** — quickest way to try the agent locally
+2. **Docker Compose** — convenient for a more persistent containerized deployment
 3. **Editable development install** — `pip install -e .[dev]`
 
 Requirements:
 
 - An Outline instance with API access and webhooks enabled
 
-### 1. Via Docker Compose
+### 1. Install from PyPI
 
-This is the easiest deployment path.
+Once the package is published, install it with:
+
+```bash
+pip install outline-agent
+```
+
+Then start it:
+
+```bash
+outline-agent start
+```
+
+On first start, if `~/.outline-agent/config.yaml` does not exist yet, the CLI creates it and exits so you can edit it.
+
+Main local config location:
+
+- `~/.outline-agent/config.yaml`
+
+Main local runtime data location:
+
+- `~/.outline-agent/data/`
+
+By default the service binds to:
+
+- `127.0.0.1:8787`
+
+You can change host/port in `~/.outline-agent/config.yaml` or via CLI flags.
+
+Mermaid validation is optional in local non-Docker installs. If the Mermaid validator is not available locally, the agent logs a warning at startup and simply skips Mermaid preflight checks instead of failing requests.
+
+If you installed from PyPI and want local Mermaid validation, install a Mermaid CLI backend separately:
+
+```bash
+npm install -g @mermaid-js/mermaid-cli
+```
+
+Then verify:
+
+```bash
+mmdc --version
+```
+
+If the binary is not on your normal shell `PATH`, you can point the agent at it explicitly:
+
+```bash
+export OUTLINE_AGENT_MERMAID_CLI_PATH=/path/to/mmdc
+```
+
+### 2. Via Docker Compose
+
+This is a convenient deployment path when you want the agent running in a container with mounted config and runtime data.
 
 ```bash
 git clone https://github.com/visualDust/outline-agent
@@ -103,56 +153,6 @@ config/
 ```
 
 You do not need to rebuild the image just to override prompts. Editing files under the mounted `config/prompts/` tree is enough.
-
-### 2. Install from PyPI
-
-Once the package is published, install it with:
-
-```bash
-pip install outline-agent
-```
-
-Then start it:
-
-```bash
-outline-agent start
-```
-
-On first start, if `~/.outline-agent/config.yaml` does not exist yet, the CLI creates it and exits so you can edit it.
-
-Main local config location:
-
-- `~/.outline-agent/config.yaml`
-
-Main local runtime data location:
-
-- `~/.outline-agent/data/`
-
-By default the service binds to:
-
-- `127.0.0.1:8787`
-
-You can change host/port in `~/.outline-agent/config.yaml` or via CLI flags.
-
-Mermaid validation is optional in local non-Docker installs. If the Mermaid validator is not available locally, the agent logs a warning at startup and simply skips Mermaid preflight checks instead of failing requests.
-
-If you installed from PyPI and want local Mermaid validation, install a Mermaid CLI backend separately:
-
-```bash
-npm install -g @mermaid-js/mermaid-cli
-```
-
-Then verify:
-
-```bash
-mmdc --version
-```
-
-If the binary is not on your normal shell `PATH`, you can point the agent at it explicitly:
-
-```bash
-export OUTLINE_AGENT_MERMAID_CLI_PATH=/path/to/mmdc
-```
 
 ### 3. Editable development install
 

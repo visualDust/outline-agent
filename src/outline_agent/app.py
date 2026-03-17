@@ -158,7 +158,13 @@ async def outline_webhook(request: Request) -> JSONResponse:
     if not isinstance(event_name, str):
         raise HTTPException(status_code=400, detail="invalid webhook payload: missing event")
 
-    if event_name not in {"comments.create", "comments.update", "comments.delete"}:
+    if event_name not in {
+        "comments.create",
+        "comments.update",
+        "comments.delete",
+        "documents.delete",
+        "collections.delete",
+    }:
         return JSONResponse(
             {
                 "ok": True,

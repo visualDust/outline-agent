@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
+import outline_agent.app as app_module
 from outline_agent.app import _maybe_post_failure_comment, app
 from outline_agent.clients.outline_client import (
     OutlineClientError,
@@ -15,9 +17,11 @@ from outline_agent.clients.outline_client import (
     OutlineDocument,
     OutlineUser,
 )
-from outline_agent.core.config import AppSettings, clear_settings_cache
+from outline_agent.core.config import AppSettings
+from outline_agent.core.logging import logger
 from outline_agent.models.webhook_models import WebhookEnvelope
 from outline_agent.processing.processor import CommentProcessor
+from outline_agent.processing.processor_types import ProcessingResult
 from outline_agent.state.store import ProcessedEventStore
 from outline_agent.state.workspace import CollectionWorkspaceManager
 
@@ -384,6 +388,15 @@ class SimpleModelClient:
                 }
             )
         return "Acknowledged."
+
+
+class NoopDeleteModelClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
+        self.calls.append((system_prompt, user_prompt))
+        raise AssertionError("Delete sync events should not invoke the model")
 
 
 class MemoryActionModelClient:
@@ -831,7 +844,10 @@ def test_comment_processor_passes_embedded_comment_images_to_multimodal_reply_mo
         {
             "url_or_path": "/api/attachments.redirect?id=image-123",
             "file_path": str(
-                Path(result.collection_workspace or "") / "workspace" / "comment_images" / "cad435c3-1cb9-4dd5-9254-d355b02fd795-1.img"
+                Path(result.collection_workspace or "")
+                / "workspace"
+                / "comment_images"
+                / "cad435c3-1cb9-4dd5-9254-d355b02fd795-1.img"
             ),
         }
     ]
@@ -1394,6 +1410,351 @@ def test_comment_processor_posts_failure_comment_and_clears_reaction_on_internal
     assert store.contains("comments.create:cad435c3-1cb9-4dd5-9254-d355b02fd795")
 
 
+def test_comment_processor_archives_document_workspace_and_threads_on_document_delete(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=True,
+    )
+    workspace_manager = CollectionWorkspaceManager(settings.workspace_root)
+    workspace = workspace_manager.ensure("collection-1", "Delete Test Collection")
+    document_workspace = workspace_manager.ensure_document(
+        workspace,
+        document_id="document-1",
+        document_title="Delete Test Document",
+    )
+    other_document_workspace = workspace_manager.ensure_document(
+        workspace,
+        document_id="document-2",
+        document_title="Keep Me",
+    )
+    deleted_thread = workspace_manager.ensure_thread(workspace, "thread-1", "document-1", "Delete Test Document")
+    deleted_thread.sync_transcript_from_comments(
+        document_id="document-1",
+        document_title="Delete Test Document",
+        comments=[
+            _make_outline_comment(
+                comment_id="thread-1",
+                document_id="document-1",
+                parent_comment_id=None,
+                author_name="Gavin Gong",
+                created_at="2026-03-09T10:00:00.000Z",
+                text="Please delete this doc thread too.",
+            )
+        ],
+        max_recent_comments=20,
+        max_comment_chars=1000,
+    )
+    preserved_thread = workspace_manager.ensure_thread(workspace, "thread-2", "document-2", "Keep Me")
+    preserved_thread.sync_transcript_from_comments(
+        document_id="document-2",
+        document_title="Keep Me",
+        comments=[
+            _make_outline_comment(
+                comment_id="thread-2",
+                document_id="document-2",
+                parent_comment_id=None,
+                author_name="Gavin Gong",
+                created_at="2026-03-09T11:00:00.000Z",
+                text="This thread should stay active.",
+            )
+        ],
+        max_recent_comments=20,
+        max_comment_chars=1000,
+    )
+
+    model_client = NoopDeleteModelClient()
+    processor = CommentProcessor(
+        settings=settings,
+        store=ProcessedEventStore(tmp_path / "processed.json"),
+        outline_client=DummyOutlineClient(),
+        model_client=model_client,
+    )
+
+    debug_messages: list[str] = []
+    sink_id = logger.add(lambda message: debug_messages.append(str(message).strip()), level="DEBUG")
+    try:
+        result = asyncio.run(
+            processor.handle(
+                WebhookEnvelope.model_validate(
+                    {
+                        "id": "webhook-document-delete-1",
+                        "event": "documents.delete",
+                        "payload": {
+                            "id": "document-1",
+                            "model": {
+                                "id": "document-1",
+                                "collectionId": "collection-1",
+                                "title": "Delete Test Document",
+                            },
+                        },
+                    }
+                )
+            )
+        )
+    finally:
+        logger.remove(sink_id)
+
+    archived_document_path = workspace.archived_documents_dir / document_workspace.root_dir.name
+    archived_thread_path = workspace.archived_threads_dir / deleted_thread.root_dir.name
+
+    assert result.action == "synced"
+    assert result.reason == "document-deleted"
+    assert result.document_workspace == str(archived_document_path)
+    assert result.collection_workspace == str(workspace.root_dir)
+    assert model_client.calls == []
+    assert not document_workspace.root_dir.exists()
+    assert archived_document_path.exists()
+    assert not deleted_thread.root_dir.exists()
+    assert archived_thread_path.exists()
+    assert other_document_workspace.root_dir.exists()
+    assert preserved_thread.root_dir.exists()
+
+    archived_document_state = json.loads((archived_document_path / "state.json").read_text(encoding="utf-8"))
+    assert archived_document_state["deleted"] is True
+    assert archived_document_state["deleted_reason"] == "document-deleted"
+
+    archived_thread_transcript = json.loads((archived_thread_path / "comments.json").read_text(encoding="utf-8"))
+    assert archived_thread_transcript["deleted"] is True
+    assert any("Document delete event received" in message for message in debug_messages)
+    assert any("Document delete archiving thread workspace" in message for message in debug_messages)
+    assert any("Document delete archived document workspace" in message for message in debug_messages)
+
+
+def test_comment_processor_document_delete_returns_noop_when_document_missing(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=True,
+    )
+    workspace_manager = CollectionWorkspaceManager(settings.workspace_root)
+    workspace = workspace_manager.ensure("collection-1", "Delete Test Collection")
+
+    model_client = NoopDeleteModelClient()
+    processor = CommentProcessor(
+        settings=settings,
+        store=ProcessedEventStore(tmp_path / "processed.json"),
+        outline_client=DummyOutlineClient(),
+        model_client=model_client,
+    )
+
+    result = asyncio.run(
+        processor.handle(
+            WebhookEnvelope.model_validate(
+                {
+                    "id": "webhook-document-delete-missing",
+                    "event": "documents.delete",
+                    "payload": {
+                        "id": "document-missing",
+                        "model": {
+                            "id": "document-missing",
+                            "collectionId": "collection-1",
+                        },
+                    },
+                }
+            )
+        )
+    )
+
+    assert result.action == "synced"
+    assert result.reason == "document-delete-noop"
+    assert result.collection_workspace == str(workspace.root_dir)
+    assert result.document_workspace is None
+    assert model_client.calls == []
+
+
+def test_comment_processor_document_delete_returns_already_archived_after_collection_archive(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=True,
+    )
+    workspace_manager = CollectionWorkspaceManager(settings.workspace_root)
+    workspace = workspace_manager.ensure("collection-1", "Delete Test Collection")
+    archived_collection_path = workspace_manager.archive_collection(workspace, reason="test-setup")
+
+    model_client = NoopDeleteModelClient()
+    processor = CommentProcessor(
+        settings=settings,
+        store=ProcessedEventStore(tmp_path / "processed.json"),
+        outline_client=DummyOutlineClient(),
+        model_client=model_client,
+    )
+
+    result = asyncio.run(
+        processor.handle(
+            WebhookEnvelope.model_validate(
+                {
+                    "id": "webhook-document-delete-after-collection-archive",
+                    "event": "documents.delete",
+                    "payload": {
+                        "id": "document-1",
+                        "model": {
+                            "id": "document-1",
+                            "collectionId": "collection-1",
+                        },
+                    },
+                }
+            )
+        )
+    )
+
+    assert result.action == "synced"
+    assert result.reason == "collection-already-archived"
+    assert result.collection_workspace == str(archived_collection_path)
+    assert model_client.calls == []
+
+
+def test_comment_processor_archives_collection_workspace_on_collection_delete(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=True,
+    )
+    workspace_manager = CollectionWorkspaceManager(settings.workspace_root)
+    workspace = workspace_manager.ensure("collection-1", "Delete Test Collection")
+
+    model_client = NoopDeleteModelClient()
+    processor = CommentProcessor(
+        settings=settings,
+        store=ProcessedEventStore(tmp_path / "processed.json"),
+        outline_client=DummyOutlineClient(),
+        model_client=model_client,
+    )
+
+    debug_messages: list[str] = []
+    sink_id = logger.add(lambda message: debug_messages.append(str(message).strip()), level="DEBUG")
+    try:
+        result = asyncio.run(
+            processor.handle(
+                WebhookEnvelope.model_validate(
+                    {
+                        "id": "webhook-collection-delete-1",
+                        "event": "collections.delete",
+                        "payload": {
+                            "id": "collection-1",
+                            "model": {
+                                "id": "collection-1",
+                                "name": "Delete Test Collection",
+                            },
+                        },
+                    }
+                )
+            )
+        )
+    finally:
+        logger.remove(sink_id)
+
+    archived_collection_path = workspace_manager.archived_collections_dir / workspace.root_dir.name
+
+    assert result.action == "synced"
+    assert result.reason == "collection-deleted"
+    assert result.collection_workspace == str(archived_collection_path)
+    assert model_client.calls == []
+    assert not workspace.root_dir.exists()
+    assert archived_collection_path.exists()
+    assert any("Collection delete event received" in message for message in debug_messages)
+    assert any("Collection delete archived collection workspace" in message for message in debug_messages)
+
+
+def test_comment_processor_collection_delete_returns_already_archived_when_replayed(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=True,
+    )
+    workspace_manager = CollectionWorkspaceManager(settings.workspace_root)
+    workspace = workspace_manager.ensure("collection-1", "Delete Test Collection")
+    archived_collection_path = workspace_manager.archive_collection(workspace, reason="test-setup")
+
+    model_client = NoopDeleteModelClient()
+    processor = CommentProcessor(
+        settings=settings,
+        store=ProcessedEventStore(tmp_path / "processed.json"),
+        outline_client=DummyOutlineClient(),
+        model_client=model_client,
+    )
+
+    result = asyncio.run(
+        processor.handle(
+            WebhookEnvelope.model_validate(
+                {
+                    "id": "webhook-collection-delete-replayed",
+                    "event": "collections.delete",
+                    "payload": {
+                        "id": "collection-1",
+                        "model": {
+                            "id": "collection-1",
+                        },
+                    },
+                }
+            )
+        )
+    )
+
+    assert result.action == "synced"
+    assert result.reason == "collection-already-archived"
+    assert result.collection_workspace == str(archived_collection_path)
+    assert model_client.calls == []
+
+
+def test_comment_processor_ignores_duplicate_delete_event(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=True,
+    )
+    workspace_manager = CollectionWorkspaceManager(settings.workspace_root)
+    workspace = workspace_manager.ensure("collection-1", "Delete Test Collection")
+    workspace_manager.ensure_document(
+        workspace,
+        document_id="document-1",
+        document_title="Delete Test Document",
+    )
+
+    store = ProcessedEventStore(tmp_path / "processed.json")
+    model_client = NoopDeleteModelClient()
+    processor = CommentProcessor(
+        settings=settings,
+        store=store,
+        outline_client=DummyOutlineClient(),
+        model_client=model_client,
+    )
+
+    payload = {
+        "id": "webhook-document-delete-duplicate",
+        "event": "documents.delete",
+        "payload": {
+            "id": "document-1",
+            "model": {
+                "id": "document-1",
+                "collectionId": "collection-1",
+            },
+        },
+    }
+
+    first_result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
+    second_result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
+
+    assert first_result.action == "synced"
+    assert first_result.reason == "document-deleted"
+    assert second_result.action == "ignored"
+    assert second_result.reason == "duplicate-delete-event"
+    assert model_client.calls == []
+
+
 def test_app_failure_handler_posts_failure_comment_for_triggered_comment(tmp_path: Path) -> None:
     settings = AppSettings(
         outline_api_key="ol_api_test",
@@ -1424,6 +1785,76 @@ def test_app_failure_handler_posts_failure_comment_for_triggered_comment(tmp_pat
     assert posted["parent_comment_id"] == "cad435c3-1cb9-4dd5-9254-d355b02fd795"
     assert "Sorry — I hit an internal error" in (posted["text"] or "")
     assert store.contains("comments.create:cad435c3-1cb9-4dd5-9254-d355b02fd795")
+
+
+def test_app_accepts_document_and_collection_delete_webhooks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="",
+        runtime_outline_user_id=AGENT_USER_ID,
+        workspace_root=tmp_path / "agents",
+        webhook_log_dir=tmp_path / "webhooks",
+        dedupe_store_path=tmp_path / "processed.json",
+        log_file_path=tmp_path / "outline-agent.log",
+        dry_run=True,
+    )
+
+    async def _handle(envelope: WebhookEnvelope) -> ProcessingResult:
+        model = envelope.payload.model
+        return ProcessingResult(
+            action="synced",
+            reason=envelope.event,
+            document_id=getattr(model, "resolved_document_id", None),
+            collection_id=getattr(model, "resolved_collection_id", None) or getattr(model, "collectionId", None),
+        )
+
+    class FakeProcessor:
+        async def handle(self, envelope: WebhookEnvelope) -> ProcessingResult:
+            return await _handle(envelope)
+
+    monkeypatch.setattr(app_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(app_module, "configure_logging", lambda settings: None)
+    monkeypatch.setattr(app_module, "build_request_resources", lambda settings: (SimpleNamespace(), SimpleNamespace()))
+    monkeypatch.setattr(app_module, "build_comment_processor", lambda **kwargs: FakeProcessor())
+
+    with TestClient(app) as client:
+        document_response = client.post(
+            "/outline/webhook",
+            json={
+                "id": "webhook-doc-delete-app",
+                "event": "documents.delete",
+                "payload": {
+                    "id": "document-1",
+                    "model": {
+                        "id": "document-1",
+                        "collectionId": "collection-1",
+                    },
+                },
+            },
+        )
+        collection_response = client.post(
+            "/outline/webhook",
+            json={
+                "id": "webhook-collection-delete-app",
+                "event": "collections.delete",
+                "payload": {
+                    "id": "collection-1",
+                    "model": {
+                        "id": "collection-1",
+                    },
+                },
+            },
+        )
+
+    assert document_response.status_code == 200
+    assert document_response.json()["action"] == "synced"
+    assert document_response.json()["reason"] == "documents.delete"
+    assert document_response.json()["document_id"] == "document-1"
+
+    assert collection_response.status_code == 200
+    assert collection_response.json()["action"] == "synced"
+    assert collection_response.json()["reason"] == "collections.delete"
+    assert collection_response.json()["collection_id"] == "collection-1"
 
 class ToolPlanModelClient:
     def __init__(self) -> None:
@@ -2262,7 +2693,7 @@ def test_comment_processor_posts_and_updates_progress_comment_for_tool_execution
         in outline_client.updated_comments[0]["text"]
     )
     assert outline_client.updated_comments[-2]["text"].startswith("Done — I finished the requested actions.")
-    assert "Finished: ran `bash hello.sh` → output `hello-from-tool`." in outline_client.updated_comments[-2]["text"]
+    assert "Finished: ran `bash hello.sh` → output `hello-from-tool`" in outline_client.updated_comments[-2]["text"]
     assert outline_client.updated_comments[-1]["text"] == (
         "Done — I created `hello.sh`, ran it in the collection work dir, and it printed `hello-from-tool`."
     )
