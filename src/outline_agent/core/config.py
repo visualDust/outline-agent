@@ -113,6 +113,8 @@ features:
   document_memory: true
   # Enable reaction emoji updates during processing.
   reactions: true
+  # Enable automatic Mermaid validation before document writes when a validator is available.
+  mermaid_validation: true
   # Enable retrieval of related documents from the same collection as extra context.
   related_documents: true
   # Enable progress comments such as “Working on it...” while tools are running.
@@ -129,6 +131,14 @@ runtime:
   tool_execution_max_steps: 6
   # Number of steps actually executed before replanning.
   tool_execution_chunk_size: 2
+  # `auto` = validate Mermaid when possible and skip if unavailable; `required` = fail writes if unavailable.
+  mermaid_validation_mode: auto
+  # Maximum Mermaid repair retries triggered by validation failures within one request.
+  mermaid_validation_max_retries: 3
+  # `block` = still block document writes after retry exhaustion; `allow_write` = allow later writes to bypass validation.
+  mermaid_validation_exhausted_action: allow_write
+  # Mermaid validation timeout per block, in seconds.
+  mermaid_validation_timeout_seconds: 20
   # Optional: collection workspace root. Relative paths resolve from this config file's directory.
   # workspace_root: data/agents
   # Optional: raw webhook log directory.
@@ -310,6 +320,7 @@ _GROUPED_CONFIG_FIELDS = {
         "tool_use": "tool_use_enabled",
         "document_memory": "document_memory_update_enabled",
         "reactions": "reaction_enabled",
+        "mermaid_validation": "mermaid_validation_enabled",
         "related_documents": "related_documents_enabled",
         "same_document_comments": "same_document_comment_lookup_enabled",
         "progress_comments": "progress_comment_enabled",
@@ -322,6 +333,10 @@ _GROUPED_CONFIG_FIELDS = {
         "tool_execution_max_rounds": "tool_execution_max_rounds",
         "tool_execution_max_steps": "tool_execution_max_steps",
         "tool_execution_chunk_size": "tool_execution_chunk_size",
+        "mermaid_validation_mode": "mermaid_validation_mode",
+        "mermaid_validation_max_retries": "mermaid_validation_max_retries",
+        "mermaid_validation_exhausted_action": "mermaid_validation_exhausted_action",
+        "mermaid_validation_timeout_seconds": "mermaid_validation_timeout_seconds",
     },
     "logging": {
         "level": "log_level",
@@ -431,6 +446,11 @@ class AppSettings(BaseSettings):
     document_memory_max_open_questions: int = 4
     document_memory_max_working_notes: int = 4
     reaction_enabled: bool = True
+    mermaid_validation_enabled: bool = True
+    mermaid_validation_mode: Literal["off", "auto", "required"] = "auto"
+    mermaid_validation_max_retries: int = 3
+    mermaid_validation_exhausted_action: Literal["block", "allow_write"] = "allow_write"
+    mermaid_validation_timeout_seconds: float = 20.0
     reaction_processing_emoji: str = "👀"
     reaction_done_emoji: str = "👍"
     system_prompt_path: Path = Field(default_factory=default_system_prompt_path)

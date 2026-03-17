@@ -1,0 +1,8 @@
+{
+  "name": "outline-agent-runtime",
+  "private": true,
+  "description": "Optional JS runtime dependencies for Outline Agent",
+  "dependencies": {
+    "@mermaid-js/mermaid-cli": "11.12.0"
+  }
+}

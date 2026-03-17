@@ -26,6 +26,7 @@ from outline_agent.processing.processor_progress import (
 )
 from outline_agent.runtime.tool_runtime import ToolStepResult
 from outline_agent.tools import (
+    ApplyDocumentUpdateTool,
     CreateDocumentTool,
     GetCurrentDocumentTool,
     ToolApprovalDecision,
@@ -40,6 +41,7 @@ class DummyOutlineClient:
     def __init__(self) -> None:
         self.downloads: list[dict[str, str]] = []
         self.created_documents: list[dict[str, str | bool | None]] = []
+        self.updated_documents: list[dict[str, str | None]] = []
 
     async def download_attachment(self, url_or_path: str, file_path: Path) -> dict:
         self.downloads.append({"url_or_path": url_or_path, "file_path": str(file_path)})
@@ -78,6 +80,21 @@ class DummyOutlineClient:
             collection_id=collection_id,
             url=f"/doc/{created_id}",
             text=text,
+        )
+
+    async def update_document(
+        self,
+        document_id: str,
+        *,
+        title: str | None = None,
+        text: str | None = None,
+    ) -> None:
+        self.updated_documents.append(
+            {
+                "document_id": document_id,
+                "title": title,
+                "text": text,
+            }
         )
 
 
@@ -237,6 +254,94 @@ def test_unified_execution_loop_can_compose_download_extract_and_create_document
     ]
     assert summary.preview is not None
     assert "Created document 'Imported Attachment'." in summary.preview
+
+
+def test_create_document_tool_blocks_invalid_mermaid_before_outline_write(tmp_path: Path, monkeypatch) -> None:
+    outline_client = DummyOutlineClient()
+    context = _build_context(tmp_path, outline_client=outline_client)
+    tool = CreateDocumentTool()
+    monkeypatch.setattr(
+        "outline_agent.tools.outline_tools.build_mermaid_validation_failure",
+        lambda **kwargs: (
+            "create_document: MERMAID_VALIDATION_FAILED: block 1, markdown line 1, mermaid line 2: Parse error",
+            {"mermaid_validation": {"status": "invalid"}},
+        ),
+    )
+
+    result = asyncio.run(
+        tool.run(
+            {
+                "title": "Diagram Doc",
+                "text": "```mermaid\ngraph TD\n  A --> B[broken\n```",
+            },
+            context,
+        )
+    )
+
+    assert result.ok is False
+    assert "MERMAID_VALIDATION_FAILED" in (result.error or "")
+    assert outline_client.created_documents == []
+
+
+def test_apply_document_update_tool_blocks_invalid_mermaid_before_outline_write(tmp_path: Path, monkeypatch) -> None:
+    outline_client = DummyOutlineClient()
+    context = _build_context(tmp_path, outline_client=outline_client)
+    tool = ApplyDocumentUpdateTool()
+    monkeypatch.setattr(
+        "outline_agent.tools.document_actions._require_document_context",
+        lambda context: (None, None, context.collection, context.document),
+    )
+    monkeypatch.setattr(
+        "outline_agent.tools.document_actions.build_mermaid_validation_failure",
+        lambda **kwargs: (
+            "apply_document_update: MERMAID_VALIDATION_FAILED: block 1, markdown line 1, mermaid line 2: Parse error",
+            {"mermaid_validation": {"status": "invalid"}},
+        ),
+    )
+
+    result = asyncio.run(
+        tool.run(
+            {
+                "text": "```mermaid\ngraph TD\n  A --> B[broken\n```",
+            },
+            context,
+        )
+    )
+
+    assert result.ok is False
+    assert "MERMAID_VALIDATION_FAILED" in (result.error or "")
+    assert outline_client.updated_documents == []
+
+
+def test_create_document_tool_can_bypass_mermaid_validation_after_retry_exhaustion(
+    tmp_path: Path, monkeypatch
+) -> None:
+    outline_client = DummyOutlineClient()
+    context = _build_context(tmp_path, outline_client=outline_client)
+    context.extra["mermaid_validation_failures"] = context.settings.mermaid_validation_max_retries
+    tool = CreateDocumentTool()
+
+    captured: dict[str, object] = {}
+
+    def fake_validation(**kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr("outline_agent.tools.outline_tools.build_mermaid_validation_failure", fake_validation)
+
+    result = asyncio.run(
+        tool.run(
+            {
+                "title": "Diagram Doc",
+                "text": "```mermaid\ngraph TD\n  A --> B[broken\n```",
+            },
+            context,
+        )
+    )
+
+    assert result.ok is True
+    assert captured["bypass_validation"] is True
+    assert len(outline_client.created_documents) == 1
 
 
 def test_unified_execution_loop_stops_when_tool_approval_is_denied(tmp_path: Path) -> None:

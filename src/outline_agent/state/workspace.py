@@ -249,6 +249,12 @@ class ThreadWorkspace:
             max_recent_comments=0,
             max_comment_chars=0,
         )
+        logger.debug(
+            "Thread workspace marked deleted: thread_id={}, document_id={}, root_dir={}",
+            self.thread_id,
+            document_id,
+            self.root_dir,
+        )
 
     def rebuild_comment_state_from_transcript(
         self,

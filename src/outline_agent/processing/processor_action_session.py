@@ -64,6 +64,7 @@ class ActionLoopSession:
     progress_actions: list[str] = field(default_factory=list)
     uploaded_attachments: list[UploadedAttachment] = field(default_factory=list)
     executed_rounds: list[ExecutedToolRound] = field(default_factory=list)
+    mermaid_validation_failures: int = 0
     progress_comment_id: str | None = field(init=False)
 
     def __post_init__(self) -> None:

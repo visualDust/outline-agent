@@ -42,6 +42,7 @@ features:
   tool_use: true
   document_memory: true
   reactions: true
+  mermaid_validation: true
   related_documents: true
   progress_comments: true
 
@@ -50,6 +51,10 @@ runtime:
   tool_execution_max_rounds: 10
   tool_execution_max_steps: 6
   tool_execution_chunk_size: 2
+  mermaid_validation_mode: auto
+  mermaid_validation_max_retries: 3
+  mermaid_validation_exhausted_action: allow_write
+  mermaid_validation_timeout_seconds: 20
   workspace_root: /data/agents
   webhook_log_dir: /data/webhooks
   dedupe_store_path: /data/processed_events.json

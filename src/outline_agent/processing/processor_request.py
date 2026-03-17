@@ -122,8 +122,25 @@ async def prepare_request(
 
     root_exists = any(item.id == thread_root_id for item in thread_comments)
     if envelope.event == "comments.delete" and not root_exists:
+        logger.debug(
+            "Comment delete removed thread root; archiving thread workspace: comment_id={}, document_id={}, "
+            "thread_id={}, workspace={}, thread_workspace={}",
+            comment.id,
+            document.id,
+            thread_root_id,
+            workspace.root_dir,
+            thread_workspace.root_dir,
+        )
         thread_workspace.mark_deleted(document_id=document.id, document_title=document.title)
-        workspace_manager.archive_thread(workspace, thread_workspace, reason="root-comment-deleted")
+        archived_path = workspace_manager.archive_thread(workspace, thread_workspace, reason="root-comment-deleted")
+        logger.debug(
+            "Thread workspace archived after root comment delete: comment_id={}, document_id={}, thread_id={}, "
+            "archived_path={}",
+            comment.id,
+            document.id,
+            thread_root_id,
+            archived_path,
+        )
         store.add(semantic_key)
         return ProcessingResult(
             action="synced",
@@ -156,6 +173,15 @@ async def prepare_request(
         )
 
     if envelope.event == "comments.delete":
+        logger.debug(
+            "Comment delete synchronized without thread archive: comment_id={}, document_id={}, "
+            "thread_id={}, root_exists={}, thread_comments={}",
+            comment.id,
+            document.id,
+            thread_root_id,
+            root_exists,
+            len(thread_comments),
+        )
         store.add(semantic_key)
         return ProcessingResult(
             action="synced",

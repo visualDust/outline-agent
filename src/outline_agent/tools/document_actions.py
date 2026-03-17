@@ -9,6 +9,7 @@ from ..core.prompt_registry import PromptRegistry
 from ..managers.document_creation_manager import DocumentCreationManager
 from ..managers.document_update_manager import DocumentUpdateManager
 from ..state.workspace import DocumentWorkspace, ThreadWorkspace
+from ..utils.mermaid_validation import build_mermaid_validation_failure
 from .base import ToolContext, ToolError, ToolResult, ToolSpec
 
 
@@ -126,6 +127,23 @@ class ApplyDocumentUpdateTool:
         text = _get_text_arg(args, "text") or _get_text_arg(args, "content")
         if title is None and text is None:
             raise ToolError("apply_document_update requires title or text")
+        if text is not None:
+            validation_failure = build_mermaid_validation_failure(
+                tool_name=self.spec.name,
+                document_text=text,
+                settings=context.settings,
+                bypass_validation=_should_bypass_mermaid_validation(context),
+            )
+            if validation_failure is not None:
+                summary, data = validation_failure
+                return ToolResult(
+                    ok=False,
+                    tool=self.spec.name,
+                    summary=summary,
+                    data=data,
+                    preview=summary,
+                    error=summary,
+                )
         await context.outline_client.update_document(document.id, title=title, text=text)
         return ToolResult(
             ok=True,
@@ -264,3 +282,12 @@ def _context_extra_images(context: ToolContext) -> list[ModelInputImage]:
     if isinstance(value, list) and all(isinstance(item, ModelInputImage) for item in value):
         return value
     return []
+
+
+def _should_bypass_mermaid_validation(context: ToolContext) -> bool:
+    if context.settings.mermaid_validation_exhausted_action != "allow_write":
+        return False
+    failures = context.extra.get("mermaid_validation_failures")
+    if not isinstance(failures, int):
+        return False
+    return failures >= context.settings.mermaid_validation_max_retries

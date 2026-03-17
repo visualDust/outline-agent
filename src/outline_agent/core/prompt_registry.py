@@ -27,6 +27,7 @@ class PromptRegistry:
     @classmethod
     def from_settings(cls, settings: AppSettings) -> PromptRegistry:
         from .config import (
+            PROJECT_ROOT,
             get_config_root,
             get_package_internal_prompt_dir,
             get_package_user_prompt_root,
@@ -46,16 +47,20 @@ class PromptRegistry:
         config_prompt_root = get_config_root() / "prompts"
         package_user_root = get_package_user_prompt_root()
         package_internal_root = get_package_internal_prompt_dir()
+        project_prompt_root = PROJECT_ROOT / "prompts"
         standard_user_roots = [
             config_prompt_root / "user",
+            project_prompt_root / "user",
             package_user_root,
         ]
         standard_pack_roots = [
             config_prompt_root / "user/packs",
+            project_prompt_root / "user/packs",
             package_user_root / "packs",
         ]
         standard_internal_roots = [
             config_prompt_root / "internal",
+            project_prompt_root / "internal",
             package_internal_root,
         ]
         custom_user_root = settings.system_prompt_path.parent

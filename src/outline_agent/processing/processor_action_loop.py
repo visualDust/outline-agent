@@ -5,6 +5,7 @@ from ..core.config import AppSettings
 from ..core.logging import logger
 from ..planning import UnifiedExecutionLoop, UnifiedToolPlanner
 from ..tools import ToolSpec
+from ..utils.mermaid_validation import MERMAID_VALIDATION_FAILED_PREFIX
 from .action_plan_structure import (
     available_action_tool_specs as _available_action_tool_specs,
 )
@@ -333,6 +334,8 @@ async def execute_action_plan(
         )
 
         if report.status != "applied":
+            if isinstance(report.error, str) and MERMAID_VALIDATION_FAILED_PREFIX in report.error:
+                session.mermaid_validation_failures += 1
             _apply_failure_effects(
                 session=session,
                 proposal=proposal,
@@ -348,6 +351,28 @@ async def execute_action_plan(
                 failed_step.tool if failed_step is not None else "(none)",
                 report.error or "(none)",
             )
+            if (
+                session.mermaid_validation_failures > settings.mermaid_validation_max_retries
+                and isinstance(report.error, str)
+                and MERMAID_VALIDATION_FAILED_PREFIX in report.error
+            ):
+                if settings.mermaid_validation_exhausted_action == "allow_write":
+                    logger.debug(
+                        "Mermaid validation retries exhausted for comment {} (failures={} > retries={}); "
+                        "continuing because exhausted_action=allow_write.",
+                        comment_id,
+                        session.mermaid_validation_failures,
+                        settings.mermaid_validation_max_retries,
+                    )
+                else:
+                    logger.debug(
+                        "Stopping action loop for comment {} after exceeding Mermaid validation retries "
+                        "({} > {}).",
+                        comment_id,
+                        session.mermaid_validation_failures,
+                        settings.mermaid_validation_max_retries,
+                    )
+                    return await session.stop_failed_round(round_index=round_index, status=report.status)
             if round_index < settings.tool_execution_max_rounds:
                 await session.note_retry_after_failure(round_index=round_index, status=report.status)
                 continue

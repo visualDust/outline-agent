@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ..utils.mermaid_validation import build_mermaid_validation_failure
 from .base import ToolContext, ToolError, ToolResult, ToolSpec
 
 
@@ -138,6 +139,22 @@ class CreateDocumentTool:
         text = _as_optional_str(args.get("text")) or _as_optional_str(args.get("content"))
         if not text:
             raise ToolError("text is required")
+        validation_failure = build_mermaid_validation_failure(
+            tool_name=self.spec.name,
+            document_text=text,
+            settings=context.settings,
+            bypass_validation=_should_bypass_mermaid_validation(context),
+        )
+        if validation_failure is not None:
+            summary, data = validation_failure
+            return ToolResult(
+                ok=False,
+                tool=self.spec.name,
+                summary=summary,
+                data=data,
+                preview=summary,
+                error=summary,
+            )
         collection_id = _as_optional_str(args.get("collection_id")) or _resolve_collection_id(context)
         if not collection_id:
             raise ToolError("no collection_id available for create_document")
@@ -205,3 +222,12 @@ def _as_optional_str(value: Any) -> str | None:
         raise ToolError("expected a string argument")
     compact = value.strip()
     return compact or None
+
+
+def _should_bypass_mermaid_validation(context: ToolContext) -> bool:
+    if context.settings.mermaid_validation_exhausted_action != "allow_write":
+        return False
+    failures = context.extra.get("mermaid_validation_failures")
+    if not isinstance(failures, int):
+        return False
+    return failures >= context.settings.mermaid_validation_max_retries

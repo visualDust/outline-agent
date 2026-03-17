@@ -192,6 +192,7 @@ async def execute_action_round(
                 "prior_round_observations": list(session.round_observations),
                 "prior_draft_update_data": dict(session.draft_update_data or {}),
                 "prior_draft_creation_data": dict(session.draft_creation_data or {}),
+                "mermaid_validation_failures": session.mermaid_validation_failures,
                 "available_attachment_context": list(available_attachment_context),
                 "current_comment_image_count": current_comment_image_count,
                 "input_images": input_images,

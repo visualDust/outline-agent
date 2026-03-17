@@ -47,6 +47,8 @@ Start the service:
 docker compose up -d
 ```
 
+The Docker image includes Mermaid validation dependencies by default, so document writes can automatically preflight Mermaid blocks before posting to Outline.
+
 Docker deployment layout:
 
 - host config directory: `./config`
@@ -132,6 +134,26 @@ By default the service binds to:
 
 You can change host/port in `~/.outline-agent/config.yaml` or via CLI flags.
 
+Mermaid validation is optional in local non-Docker installs. If the Mermaid validator is not available locally, the agent logs a warning at startup and simply skips Mermaid preflight checks instead of failing requests.
+
+If you installed from PyPI and want local Mermaid validation, install a Mermaid CLI backend separately:
+
+```bash
+npm install -g @mermaid-js/mermaid-cli
+```
+
+Then verify:
+
+```bash
+mmdc --version
+```
+
+If the binary is not on your normal shell `PATH`, you can point the agent at it explicitly:
+
+```bash
+export OUTLINE_AGENT_MERMAID_CLI_PATH=/path/to/mmdc
+```
+
 ### 3. Editable development install
 
 Clone the repository first:
@@ -147,6 +169,14 @@ Install in editable mode:
 pip install -e .[dev]
 pre-commit install
 ```
+
+Optional but recommended for local Mermaid validation:
+
+```bash
+npm ci
+```
+
+That installs the repo-pinned Mermaid CLI dependency into `node_modules/.bin/mmdc`, which the agent will discover automatically.
 
 Then run:
 
@@ -247,6 +277,8 @@ features:
   document_memory: true
   # Enable reaction emoji updates during processing.
   reactions: true
+  # Enable automatic Mermaid validation before document writes when available.
+  mermaid_validation: true
   # Enable related-document retrieval within the same collection.
   related_documents: true
   # Enable progress comments such as “Working on it...”.
@@ -261,6 +293,14 @@ runtime:
   tool_execution_max_steps: 6
   # Number of steps actually executed before replanning.
   tool_execution_chunk_size: 2
+  # `auto` = validate Mermaid when possible and skip if unavailable.
+  mermaid_validation_mode: auto
+  # Maximum Mermaid repair retries within one request.
+  mermaid_validation_max_retries: 3
+  # After retry exhaustion: `block` or `allow_write`.
+  mermaid_validation_exhausted_action: allow_write
+  # Mermaid validation timeout per block, in seconds.
+  mermaid_validation_timeout_seconds: 20
 
 logging:
   # Application log level.
@@ -305,8 +345,21 @@ If the API key is invalid or expired, startup will fail clearly. If a long-runni
 - `model_profiles`: provider credentials and allowed model names
 - `prompts`: system prompt overrides and prompt packs
 - `features`: enable or disable memory, document updates, tools, reactions, progress comments, and related docs
-- `runtime`: dry-run mode and planning/execution limits
+- `runtime`: dry-run mode, planning/execution limits, and Mermaid validation behavior
 - `logging`: log level and file path
+
+### Mermaid validation behavior
+
+- Mermaid validation is automatically triggered before `create_document` and `apply_document_update` when the drafted text contains Mermaid code fences.
+- This is a write-time guardrail; the planner does not need to call a separate Mermaid validation tool.
+- In Docker, Mermaid validation dependencies are included by default.
+- In local installs, Mermaid validation is optional. If unavailable and `runtime.mermaid_validation_mode=auto`, the agent logs that validation is unavailable and continues without blocking the request.
+- If you want local Mermaid validation in a repo checkout, run `npm ci`.
+- If you installed from PyPI and are not in a repo checkout, install Mermaid CLI separately with `npm install -g @mermaid-js/mermaid-cli`.
+- Advanced local setups can also point the agent at a compatible Mermaid CLI binary with `OUTLINE_AGENT_MERMAID_CLI_PATH=/path/to/mmdc`.
+- Mermaid retries are counted per document write attempt, not per Mermaid block.
+- `runtime.mermaid_validation_exhausted_action=allow_write` means that after the retry budget is exhausted, later document write attempts can bypass Mermaid validation and publish the current draft anyway.
+- `runtime.mermaid_validation_exhausted_action=block` keeps the stricter behavior and continues blocking writes after retry exhaustion.
 
 ### Environment variable overrides
 

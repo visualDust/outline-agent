@@ -27,6 +27,7 @@ from .models.webhook_models import WebhookEnvelope
 from .processing.processor_identity import invalidate_runtime_identity, is_outline_auth_error
 from .state.store import ProcessedEventStore
 from .utils.error_reporting import format_failure_comment, generate_error_id
+from .utils.mermaid_validation import get_mermaid_validator_probe
 from .utils.rich_text import extract_mentions, extract_plain_text
 from .utils.signature import verify_outline_signature
 
@@ -37,9 +38,11 @@ async def lifespan(_: FastAPI):
     configure_logging(settings)
     if not settings.runtime_outline_user_id:
         await validate_outline_runtime_identity(settings)
+    mermaid_probe = get_mermaid_validator_probe(settings, log_warning=True)
     logger.info(
         "Starting {} on {}:{} (trigger_mode={}, dry_run={}, document_updates={}, "
-        "reactions={}, tool_rounds={}, planner_step_budget={}, execution_chunk_size={}, log_level={})",
+        "reactions={}, mermaid_validation={}::{}::{}, mermaid_available={}, tool_rounds={}, "
+        "planner_step_budget={}, execution_chunk_size={}, log_level={})",
         settings.app_name,
         settings.host,
         settings.port,
@@ -47,6 +50,10 @@ async def lifespan(_: FastAPI):
         settings.dry_run,
         settings.document_update_enabled,
         settings.reaction_enabled,
+        settings.mermaid_validation_enabled,
+        settings.mermaid_validation_mode,
+        settings.mermaid_validation_exhausted_action,
+        mermaid_probe.available,
         settings.tool_execution_max_rounds,
         settings.tool_execution_max_steps,
         settings.tool_execution_chunk_size,
@@ -63,6 +70,7 @@ app = FastAPI(title="Outline Agent", version=__version__, lifespan=lifespan)
 def healthz() -> dict[str, Any]:
     settings = get_settings()
     model_status = resolve_primary_model_status(settings)
+    mermaid_probe = get_mermaid_validator_probe(settings)
 
     return {
         "ok": True,
@@ -91,6 +99,17 @@ def healthz() -> dict[str, Any]:
             settings.document_memory_model_ref or settings.memory_model_ref or settings.model_ref
         ),
         "reaction_enabled": settings.reaction_enabled,
+        "mermaid_validation_enabled": settings.mermaid_validation_enabled,
+        "mermaid_validation_mode": settings.mermaid_validation_mode,
+        "mermaid_validation_max_retries": settings.mermaid_validation_max_retries,
+        "mermaid_validation_exhausted_action": settings.mermaid_validation_exhausted_action,
+        "mermaid_validation_timeout_seconds": settings.mermaid_validation_timeout_seconds,
+        "mermaid_validator": {
+            "available": mermaid_probe.available,
+            "backend": mermaid_probe.backend,
+            "reason": mermaid_probe.reason,
+            "version": mermaid_probe.version,
+        },
         "reaction_processing_emoji": settings.reaction_processing_emoji,
         "reaction_done_emoji": settings.reaction_done_emoji,
         "log_level": settings.log_level,

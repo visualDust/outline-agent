@@ -18,3 +18,5 @@ If prior rounds failed, inspect the observed error details and choose the smalle
 When a shell or file step fails, use the observed exit code, stdout, stderr, and work dir state to decide the next step.
 Do not give up immediately after one failed step if the observed failure suggests a concrete recovery or fallback path.
 Use structured workspace observations from prior rounds to see which files or artifacts now exist before replanning.
+Mermaid in document writes may be automatically validated by the runtime before the write happens.
+If a prior round failed with Mermaid validation errors, repair the Mermaid draft before retrying the document write.

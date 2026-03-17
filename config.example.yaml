@@ -86,6 +86,8 @@ features:
   document_memory: true
   # Enable reaction emoji updates during processing.
   reactions: true
+  # Enable automatic Mermaid validation before document writes when available.
+  mermaid_validation: true
   # Enable retrieval of related documents from the same collection as extra context.
   related_documents: true
   # Enable progress comments such as “Working on it...” while tools are running.
@@ -102,6 +104,14 @@ runtime:
   tool_execution_max_steps: 6
   # Number of steps actually executed before replanning.
   tool_execution_chunk_size: 2
+  # `auto` = validate Mermaid when possible and skip if unavailable.
+  mermaid_validation_mode: auto
+  # Maximum Mermaid repair retries within one request.
+  mermaid_validation_max_retries: 3
+  # `block` = stop document writes after retry exhaustion; `allow_write` = let later writes bypass validation.
+  mermaid_validation_exhausted_action: allow_write
+  # Mermaid validation timeout per block, in seconds.
+  mermaid_validation_timeout_seconds: 20
   # Optional: collection workspace root. Relative paths resolve from this config file's directory.
   # workspace_root: data/agents
   # Optional: raw webhook log directory.
