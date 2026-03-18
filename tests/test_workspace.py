@@ -104,3 +104,44 @@ def test_collection_workspace_manager_bootstraps_document_and_thread_files(tmp_p
 
     document_prompt_context = document_workspace.load_prompt_context(max_chars=10_000)
     assert "MEMORY.md" in document_prompt_context
+
+
+def test_collection_workspace_manager_lists_active_and_archived_entities(tmp_path: Path) -> None:
+    manager = CollectionWorkspaceManager(tmp_path / "agents")
+    workspace = manager.ensure(
+        collection_id="collection-1",
+        collection_name="Demo",
+    )
+    active_document = manager.ensure_document(
+        workspace,
+        document_id="doc-active",
+        document_title="Active Doc",
+    )
+    archived_document = manager.ensure_document(
+        workspace,
+        document_id="doc-archived",
+        document_title="Archived Doc",
+    )
+    active_thread = manager.ensure_thread(
+        workspace,
+        thread_id="thread-active",
+        document_id="doc-active",
+        document_title="Active Doc",
+    )
+    archived_thread = manager.ensure_thread(
+        workspace,
+        thread_id="thread-archived",
+        document_id="doc-active",
+        document_title="Active Doc",
+    )
+
+    manager.archive_document(workspace, archived_document, reason="test")
+    manager.archive_thread(workspace, archived_thread, reason="test")
+
+    assert [item.document_id for item in manager.list_active_documents(workspace)] == ["doc-active"]
+    assert [item.document_id for item in manager.list_archived_documents(workspace)] == ["doc-archived"]
+    assert [item.thread_id for item in manager.list_active_threads(workspace)] == ["thread-active"]
+    assert [item.thread_id for item in manager.list_archived_threads(workspace)] == ["thread-archived"]
+
+    assert active_document.root_dir.exists()
+    assert active_thread.root_dir.exists()

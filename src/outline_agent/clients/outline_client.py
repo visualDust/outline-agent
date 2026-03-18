@@ -93,6 +93,8 @@ class OutlineClient:
             collection_id=_as_optional_str(data.get("collectionId")),
             url=_as_optional_str(data.get("url")),
             text=_as_optional_str(data.get("text")),
+            deleted_at=_as_optional_str(data.get("deletedAt")),
+            archived_at=_as_optional_str(data.get("archivedAt")),
         )
 
     async def documents_search(
@@ -161,6 +163,8 @@ class OutlineClient:
             collection_id=_as_optional_str(data.get("collectionId")) or collection_id,
             url=_as_optional_str(data.get("url")),
             text=_as_optional_str(data.get("text")) or text,
+            deleted_at=_as_optional_str(data.get("deletedAt")),
+            archived_at=_as_optional_str(data.get("archivedAt")),
         )
 
     async def comments_list(self, document_id: str, limit: int = 25, offset: int = 0) -> list[OutlineComment]:

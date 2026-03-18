@@ -1214,6 +1214,18 @@ class CollectionWorkspaceManager:
                 workspaces.append(self._load_collection_workspace(workspace_dir, collection_id=collection_id))
         return workspaces
 
+    def list_active_documents(self, workspace: CollectionWorkspace) -> list[DocumentWorkspace]:
+        return self._list_document_workspaces(workspace.documents_dir)
+
+    def list_archived_documents(self, workspace: CollectionWorkspace) -> list[DocumentWorkspace]:
+        return self._list_document_workspaces(workspace.archived_documents_dir)
+
+    def list_active_threads(self, workspace: CollectionWorkspace) -> list[ThreadWorkspace]:
+        return self._list_thread_workspaces(workspace.threads_dir)
+
+    def list_archived_threads(self, workspace: CollectionWorkspace) -> list[ThreadWorkspace]:
+        return self._list_thread_workspaces(workspace.archived_threads_dir)
+
     def find_document(self, workspace: CollectionWorkspace, *, document_id: str) -> DocumentWorkspace | None:
         document_dir = self.document_workspace_path(workspace, document_id=document_id)
         logger.debug(
@@ -1445,6 +1457,64 @@ class CollectionWorkspaceManager:
             if value:
                 return value
         return None
+
+    def _list_document_workspaces(self, parent_dir: Path) -> list[DocumentWorkspace]:
+        workspaces: list[DocumentWorkspace] = []
+        if not parent_dir.exists():
+            return workspaces
+        for document_dir in sorted(parent_dir.iterdir()):
+            if not document_dir.is_dir():
+                continue
+            state_path = document_dir / "state.json"
+            document_id = self._read_document_id(state_path) or document_dir.name
+            workspaces.append(
+                DocumentWorkspace(
+                    document_id=document_id,
+                    root_dir=document_dir,
+                    memory_path=document_dir / "MEMORY.md",
+                    state_path=state_path,
+                )
+            )
+        return workspaces
+
+    def _list_thread_workspaces(self, parent_dir: Path) -> list[ThreadWorkspace]:
+        workspaces: list[ThreadWorkspace] = []
+        if not parent_dir.exists():
+            return workspaces
+        for thread_dir in sorted(parent_dir.iterdir()):
+            if not thread_dir.is_dir():
+                continue
+            state_path = thread_dir / "state.json"
+            thread_id = self._read_thread_id(state_path) or thread_dir.name
+            workspaces.append(
+                ThreadWorkspace(
+                    thread_id=thread_id,
+                    root_dir=thread_dir,
+                    state_path=state_path,
+                    events_path=thread_dir / "events.jsonl",
+                    comments_path=thread_dir / "comments.json",
+                )
+            )
+        return workspaces
+
+    def _read_document_id(self, state_path: Path) -> str | None:
+        payload = self._read_json_object(state_path)
+        value = payload.get("document_id")
+        return value if isinstance(value, str) and value else None
+
+    def _read_thread_id(self, state_path: Path) -> str | None:
+        payload = self._read_json_object(state_path)
+        value = payload.get("thread_id")
+        return value if isinstance(value, str) and value else None
+
+    def _read_json_object(self, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
 
 def build_initial_document_state(*, document_id: str, document_title: str | None) -> dict[str, Any]:

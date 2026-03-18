@@ -9,8 +9,8 @@ from pathlib import Path
 
 import uvicorn
 
-from .bootstrap import validate_outline_runtime_identity
-from .core.config import (
+from ..bootstrap import validate_outline_runtime_identity
+from ..core.config import (
     APP_NAME,
     OUTLINE_AGENT_CONFIG_PATH_ENV,
     OUTLINE_AGENT_HOME_ENV,
@@ -26,8 +26,8 @@ from .core.config import (
     get_user_config_path,
     get_user_config_root,
 )
-from .core.logging import configure_logging, logger
-from .models.model_profiles import ModelProfileError, ModelProfileResolver
+from ..core.logging import configure_logging, logger
+from ..models.model_profiles import ModelProfileError, ModelProfileResolver
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,6 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Reduce startup config diagnostics",
     )
+
+    auth_parser = subparsers.add_parser("auth", help="Verify Outline authentication and inspect the active identity")
+    configure_auth_parser(auth_parser)
+
+    doctor_parser = subparsers.add_parser("doctor", help="Run maintenance diagnostics")
+    configure_doctor_parser(doctor_parser)
     return parser
 
 
@@ -56,9 +62,43 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     command = args.command or "start"
-    if command != "start":
-        parser.error(f"unknown command: {command}")
-    return _run_start(args)
+    if command == "start":
+        return _run_start(args)
+    if command == "auth":
+        auth_command = getattr(args, "auth_command", None)
+        if auth_command == "info":
+            return run_auth_info_command(args)
+        parser.error(f"unknown auth command: {auth_command}")
+    if command == "doctor":
+        doctor_command = getattr(args, "doctor_command", None)
+        if doctor_command == "workspace-sync":
+            return run_workspace_sync_command(args)
+        parser.error(f"unknown doctor command: {doctor_command}")
+    parser.error(f"unknown command: {command}")
+
+
+def configure_doctor_parser(doctor_parser: argparse.ArgumentParser) -> None:
+    from .doctor import configure_doctor_parser as _configure_doctor_parser
+
+    _configure_doctor_parser(doctor_parser)
+
+
+def configure_auth_parser(auth_parser: argparse.ArgumentParser) -> None:
+    from .auth import configure_auth_parser as _configure_auth_parser
+
+    _configure_auth_parser(auth_parser)
+
+
+def run_workspace_sync_command(args: argparse.Namespace) -> int:
+    from .doctor import run_workspace_sync_command as _run_workspace_sync_command
+
+    return _run_workspace_sync_command(args)
+
+
+def run_auth_info_command(args: argparse.Namespace) -> int:
+    from .auth import run_auth_info_command as _run_auth_info_command
+
+    return _run_auth_info_command(args)
 
 
 def _run_start(args: argparse.Namespace) -> int:
@@ -134,14 +174,14 @@ def _run_start(args: argparse.Namespace) -> int:
 
 def _apply_cli_overrides(args: argparse.Namespace) -> dict[str, str | None]:
     overrides = {
-        OUTLINE_AGENT_CONFIG_PATH_ENV: args.config_path,
-        "HOST": args.host,
-        "PORT": str(args.port) if args.port is not None else None,
-        "SYSTEM_PROMPT_PATH": args.system_prompt_path,
-        "PROMPT_PACK_DIR": args.prompt_pack_dir,
-        "WORKSPACE_ROOT": args.workspace_root,
-        "LOG_FILE_PATH": args.log_file_path,
-        "LOG_LEVEL": args.log_level,
+        OUTLINE_AGENT_CONFIG_PATH_ENV: getattr(args, "config_path", None),
+        "HOST": getattr(args, "host", None),
+        "PORT": str(getattr(args, "port", None)) if getattr(args, "port", None) is not None else None,
+        "SYSTEM_PROMPT_PATH": getattr(args, "system_prompt_path", None),
+        "PROMPT_PACK_DIR": getattr(args, "prompt_pack_dir", None),
+        "WORKSPACE_ROOT": getattr(args, "workspace_root", None),
+        "LOG_FILE_PATH": getattr(args, "log_file_path", None),
+        "LOG_LEVEL": getattr(args, "log_level", None),
     }
     previous_env: dict[str, str | None] = {}
     for key, value in overrides.items():

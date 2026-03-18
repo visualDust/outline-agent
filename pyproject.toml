@@ -9,10 +9,23 @@ description = "Webhook-driven Outline thread agent"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+keywords = ["outline", "agent", "webhook", "fastapi", "automation", "knowledge-base", "comments"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Framework :: FastAPI",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Internet :: WWW/HTTP",
+]
 authors = [
   { name = "Gavin Gong", email = "gavin@gong.host" },
 ]
-urls = { Homepage = "https://github.com/visualDust/outline-agent", Repository = "https://github.com/visualDust/outline-agent", Issues = "https://github.com/visualDust/outline-agent/issues" }
+urls = { Homepage = "https://github.com/visualDust/outline-agent", Documentation = "https://github.com/visualDust/outline-agent#readme", Repository = "https://github.com/visualDust/outline-agent", Issues = "https://github.com/visualDust/outline-agent/issues" }
 dependencies = [
   "fastapi>=0.110",
   "httpx>=0.26",

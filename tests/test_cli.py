@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 from outline_agent import cli as cli_module
+from outline_agent.cli import auth as auth_cli_module
 from outline_agent.core import config as config_module
+from outline_agent.core.config import AppSettings
 
 
 async def _validated_user() -> object:
@@ -258,3 +261,169 @@ def test_start_command_bootstraps_missing_config_and_exits(
     stderr = capsys.readouterr().err
     assert "created initial config" in stderr
     assert str(created_config) in stderr
+
+
+def test_doctor_workspace_sync_command_parses_and_dispatches(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_workspace_sync_command(args) -> int:
+        captured.update(
+            {
+                "depth": args.depth,
+                "json_output": args.json_output,
+                "concurrency": args.concurrency,
+                "fix": args.fix,
+                "yes": args.yes,
+                "collection_id": args.collection_id,
+                "document_id": args.document_id,
+            }
+        )
+        return 1
+
+    monkeypatch.setattr(cli_module, "run_workspace_sync_command", fake_run_workspace_sync_command)
+
+    exit_code = cli_module.main(
+        [
+            "doctor",
+            "workspace-sync",
+            "--depth",
+            "deep",
+            "--json",
+            "--concurrency",
+            "7",
+            "--fix",
+            "--yes",
+            "--collection-id",
+            "collection-1",
+            "--document-id",
+            "doc-1",
+        ]
+    )
+
+    assert exit_code == 1
+    assert captured == {
+        "depth": "deep",
+        "json_output": True,
+        "concurrency": 7,
+        "fix": True,
+        "yes": True,
+        "collection_id": "collection-1",
+        "document_id": "doc-1",
+    }
+
+
+def test_auth_info_command_parses_and_dispatches(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_auth_info_command(args) -> int:
+        captured.update(
+            {
+                "json_output": args.json_output,
+                "config_path": args.config_path,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(cli_module, "run_auth_info_command", fake_run_auth_info_command)
+
+    exit_code = cli_module.main(
+        [
+            "auth",
+            "info",
+            "--json",
+            "--config-path",
+            "/tmp/config.yaml",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured == {
+        "json_output": True,
+        "config_path": "/tmp/config.yaml",
+    }
+
+
+def test_auth_info_command_prints_current_identity(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("outline:\n  api_base_url: https://outline.example.com/api\n", encoding="utf-8")
+
+    class DummyClient:
+        async def auth_info(self) -> dict:
+            return {
+                "data": {
+                    "user": {
+                        "id": "user-1",
+                        "name": "Agent",
+                        "email": "agent@example.com",
+                    },
+                    "team": {
+                        "id": "team-1",
+                        "name": "Demo Team",
+                        "url": "https://outline.example.com",
+                    },
+                }
+            }
+
+    monkeypatch.setattr(auth_cli_module, "get_user_config_path", lambda: config_path)
+    monkeypatch.setattr(
+        auth_cli_module,
+        "get_settings",
+        lambda: AppSettings(
+            outline_api_base_url="https://outline.example.com/api",
+            outline_api_key="ol_api_test",
+            outline_webhook_signing_secret="ol_whs_test",
+        ),
+    )
+    monkeypatch.setattr(auth_cli_module, "build_outline_client", lambda settings: DummyClient())
+    monkeypatch.setattr(auth_cli_module, "configure_logging", lambda settings: None)
+    monkeypatch.setattr(auth_cli_module, "clear_settings_cache", lambda: None)
+
+    exit_code = auth_cli_module.run_auth_info_command(
+        argparse.Namespace(
+            json_output=False,
+            config_path=None,
+            log_file_path=None,
+            log_level=None,
+        )
+    )
+
+    assert exit_code == 0
+    stdout = capsys.readouterr().out
+    assert "Outline auth info" in stdout
+    assert "user id: user-1" in stdout
+    assert "team name: Demo Team" in stdout
+
+
+def test_auth_info_command_returns_error_when_authentication_fails(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("outline:\n  api_base_url: https://outline.example.com/api\n", encoding="utf-8")
+
+    class FailingClient:
+        async def auth_info(self) -> dict:
+            raise RuntimeError("invalid api key")
+
+    monkeypatch.setattr(auth_cli_module, "get_user_config_path", lambda: config_path)
+    monkeypatch.setattr(
+        auth_cli_module,
+        "get_settings",
+        lambda: AppSettings(
+            outline_api_base_url="https://outline.example.com/api",
+            outline_api_key="ol_api_test",
+            outline_webhook_signing_secret="ol_whs_test",
+        ),
+    )
+    monkeypatch.setattr(auth_cli_module, "build_outline_client", lambda settings: FailingClient())
+    monkeypatch.setattr(auth_cli_module, "configure_logging", lambda settings: None)
+    monkeypatch.setattr(auth_cli_module, "clear_settings_cache", lambda: None)
+
+    exit_code = auth_cli_module.run_auth_info_command(
+        argparse.Namespace(
+            json_output=False,
+            config_path=None,
+            log_file_path=None,
+            log_level=None,
+        )
+    )
+
+    assert exit_code == 2
+    assert "outline auth.info failed: invalid api key" in capsys.readouterr().err

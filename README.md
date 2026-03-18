@@ -208,106 +208,37 @@ For normal local development, `~/.outline-agent/config.yaml` is the main configu
 Exported environment variables can override values from that YAML config.
 The repository's `.env.example` is only a reference file; `.env` is **not** auto-loaded by the app.
 
-Minimal config:
+### Maintenance diagnostics
 
-```yaml
-server:
-  # HTTP bind host for the local webhook service.
-  host: 127.0.0.1
-  # HTTP bind port for the local webhook service.
-  port: 8787
+The CLI includes a workspace drift diagnostic command:
 
-outline:
-  # Your Outline API base URL. `/api` is added automatically if omitted.
-  api_base_url: https://outline.example.com/api
-  # API key created from the Outline user account that should act as the agent.
-  api_key: ol_api_0123456789abcdef0123456789abcdef
-  # Webhook signing secret created in Outline admin webhook settings.
-  webhook_signing_secret: ol_whs_0123456789abcdef0123456789abcdef
-  # Optional: HTTP timeout for Outline API requests, in seconds.
-  # timeout_seconds: 30
-
-trigger:
-  # `mention` = only respond when mentioned or replied to; `all` = respond to all comments.
-  mode: mention
-  # Mention aliases that can trigger the agent in comment text.
-  mention_aliases:
-    - "@agent"
-  # Optional: plain-text fallback mention detection when structured mentions are missing.
-  # mention_alias_fallback_enabled: false
-  # Optional: replies to the agent can trigger without a fresh mention.
-  # on_reply_to_agent: true
-
-model:
-  # Main model ref. `null` means “use model_profiles.default”.
-  ref: null
-  # Timeout for model API requests, in seconds.
-  timeout_seconds: 180
-
-model_profiles:
-  # Default `alias/model-name` ref used when model.ref is null.
-  default: demo/gpt-4.1-mini
-  profiles:
-    demo:
-      # Provider adapter name used by the runtime.
-      provider: openai-responses
-      # Base URL for your model gateway / API service.
-      base_url: https://your-gateway.example.com/openai/v1
-      # API key for the model provider or gateway above.
-      api_key: ""
-      # Allowed model names under this alias. The first one is the default.
-      models:
-        - gpt-4.1-mini
-
-prompts:
-  # Built-in or custom prompt packs appended to the base system prompt.
-  system_prompt_packs:
-    - outline_style
-
-features:
-  # Enable collection memory action planning.
-  memory_actions: true
-  # Enable writing back durable collection memory.
-  memory_updates: true
-  # Enable Outline document updates.
-  document_updates: true
-  # Enable local/file/shell tool use.
-  tool_use: true
-  # Enable writing back document-local memory.
-  document_memory: true
-  # Enable reaction emoji updates during processing.
-  reactions: true
-  # Enable automatic Mermaid validation before document writes when available.
-  mermaid_validation: true
-  # Enable related-document retrieval within the same collection.
-  related_documents: true
-  # Enable progress comments such as “Working on it...”.
-  progress_comments: true
-
-runtime:
-  # If true, simulate side effects without actually mutating Outline state.
-  dry_run: false
-  # Max number of plan/replan rounds for one request.
-  tool_execution_max_rounds: 10
-  # Max number of steps the planner may propose in one round.
-  tool_execution_max_steps: 6
-  # Number of steps actually executed before replanning.
-  tool_execution_chunk_size: 2
-  # `auto` = validate Mermaid when possible and skip if unavailable.
-  mermaid_validation_mode: auto
-  # Maximum Mermaid repair retries within one request.
-  mermaid_validation_max_retries: 3
-  # After retry exhaustion: `block` or `allow_write`.
-  mermaid_validation_exhausted_action: allow_write
-  # Mermaid validation timeout per block, in seconds.
-  mermaid_validation_timeout_seconds: 20
-
-logging:
-  # Application log level.
-  level: DEBUG
+```bash
+outline-agent doctor workspace-sync
 ```
 
-See [`config.example.yaml`](config.example.yaml) for a fuller example, and [`docs/config.md`](docs/config.md) for a field-by-field reference.
+To quickly verify that your current Outline config is usable, run:
+
+```bash
+outline-agent auth info
+```
+
+Useful flags:
+
+- `--depth deep`
+- `--fix`
+- `--config-path ...`
+- `--workspace-root ...`
+
+Behavior notes and repair semantics are documented here:
+
+- [`docs/doctor-workspace-sync-behavior.md`](docs/doctor-workspace-sync-behavior.md)
+
+Rather than duplicating a long config example here, use:
+
+- [`docker/config.yaml.example`](docker/config.yaml.example) for a commented full example
+- [`docs/config.md`](docs/config.md) for the field-by-field configuration reference
+
+For local installs, `outline-agent start` will create `~/.outline-agent/config.yaml` on first run if it does not exist yet.
 
 If you want to apply overrides from a local `.env` file manually, one common shell pattern is:
 

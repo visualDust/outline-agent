@@ -19,6 +19,8 @@ class OutlineDocument:
     collection_id: str | None
     url: str | None
     text: str | None
+    deleted_at: str | None = None
+    archived_at: str | None = None
 
 
 @dataclass
