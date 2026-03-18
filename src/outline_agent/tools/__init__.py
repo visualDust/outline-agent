@@ -9,6 +9,7 @@ from .base import ToolContext, ToolError, ToolResult, ToolSpec
 from .defaults import build_default_tool_registry
 from .document_actions import ApplyDocumentUpdateTool, DraftDocumentUpdateTool, DraftNewDocumentTool
 from .extract_text import build_default_extract_text_tools
+from .gemini_web_search import AskGeminiWebSearchTool
 from .outline_tools import CreateDocumentTool, GetCurrentDocumentTool
 from .registry import ToolRegistry
 from .workspace_tools import (
@@ -29,6 +30,7 @@ __all__ = [
     "DraftDocumentUpdateTool",
     "DraftNewDocumentTool",
     "CreateDocumentTool",
+    "AskGeminiWebSearchTool",
     "build_default_tool_registry",
     "build_tool_approval_policy",
     "DownloadAttachmentTool",

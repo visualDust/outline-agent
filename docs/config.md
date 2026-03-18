@@ -181,6 +181,16 @@ If you omit `model.ref`, the runtime uses `model_profiles.default`.
 | `model_profiles.profiles.<alias>.api_key` | Yes | none | API key used for that model provider. | Must be non-empty for resolution to succeed. |
 | `model_profiles.profiles.<alias>.models` | Yes | none | Allowed model names under that alias. | The first model in the list is treated as the default. |
 
+## `gemini`
+
+Optional Gemini settings used only for the `ask_gemini_web_search` tool.
+
+| Field | Required | Default | Meaning | Notes |
+|---|---:|---|---|---|
+| `gemini.api_key` | No | empty | Gemini API key for web search lookups. | Environment variables `GEMINI_API_KEY` and `GOOGLE_API_KEY` also work. If absent, the tool is not registered. |
+| `gemini.base_url` | No | `https://generativelanguage.googleapis.com` | Base URL for Gemini-compatible providers or gateways. | The runtime appends `/v1beta/models/{model}:generateContent`. |
+| `gemini.model` | No | `gemini-3-flash-preview` | Gemini model name used for web search lookups. | Only affects the web search helper tool. |
+
 ---
 
 ## `prompts`

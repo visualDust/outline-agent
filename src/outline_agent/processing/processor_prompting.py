@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,7 @@ from ..clients.outline_client import OutlineCollection, OutlineComment, OutlineD
 from ..core.prompt_registry import PromptPack
 from ..models.webhook_models import CommentModel, WebhookEnvelope
 from ..state.workspace import CollectionWorkspace, DocumentWorkspace, ThreadWorkspace
-from ..utils.rich_text import MentionRef, extract_prompt_text
+from ..utils.rich_text import MentionRef
 from .processor_types import CrossThreadHandoff
 
 
@@ -62,6 +63,7 @@ def build_user_prompt(
     max_document_memory_chars: int,
     max_prompt_chars: int,
 ) -> str:
+    now_utc = datetime.now(UTC)
     collection_name = collection.name if collection and collection.name else document.collection_id or "(unknown)"
     document_excerpt = truncate(document.text or "", max_document_chars) or "(document text unavailable)"
     document_memory_context = document_workspace.load_prompt_context(max_chars=max_document_memory_chars)
@@ -126,6 +128,9 @@ def build_user_prompt(
         f"Document URL: {document.url or '(unknown)'}\n"
         f"Comment ID: {comment.id}\n"
         f"Parent comment ID: {comment.parentCommentId or '(none)'}\n\n"
+        "Runtime time facts:\n"
+        f"- Current datetime (UTC): {now_utc.isoformat().replace('+00:00', 'Z')}\n"
+        "\n"
         "Persisted document memory:\n"
         f"{document_memory_context or '(no prior document memory)'}\n\n"
         "Thread runtime state:\n"

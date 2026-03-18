@@ -93,6 +93,7 @@ logging:
     assert "config yaml:" in stderr
     assert str(user_root / "config.yaml") in stderr
     assert "bind: 0.0.0.0:9999" in stderr
+    assert "ask_gemini_web_search will be unavailable" in stderr
 
 
 def test_start_command_accepts_explicit_config_path(

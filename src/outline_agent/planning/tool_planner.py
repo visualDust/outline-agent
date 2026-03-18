@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from ..clients.model_client import ModelClient, ModelInputImage
 from ..clients.outline_models import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
@@ -161,6 +163,7 @@ class UnifiedToolPlanner:
         available_attachment_context: list[AttachmentContextItem],
         current_comment_image_count: int,
     ) -> str:
+        now_utc = datetime.now(UTC)
         collection_name = collection.name if collection and collection.name else document.collection_id or "(unknown)"
         document_memory = _truncate(
             document_workspace.load_prompt_context(self.settings.max_document_memory_chars),
@@ -200,6 +203,9 @@ class UnifiedToolPlanner:
             f"Document workspace: {document_workspace.root_dir}\n"
             f"Thread workspace: {thread_workspace.root_dir}\n"
             f"Collection work dir: {workspace.workspace_dir}\n\n"
+            "Runtime time facts:\n"
+            f"- Current datetime (UTC): {now_utc.isoformat().replace('+00:00', 'Z')}\n"
+            "\n"
             f"Current planning round: {current_round} of {self.settings.tool_execution_max_rounds}\n\n"
             f"Planner step budget: {self.settings.tool_execution_max_steps}\n"
             f"Execution chunk size: {self.settings.tool_execution_chunk_size}\n\n"

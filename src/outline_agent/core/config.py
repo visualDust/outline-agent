@@ -86,6 +86,15 @@ model_profiles:
       models:
         - gpt-4.1-mini
 
+gemini:
+  # Optional Gemini API key for the `ask_gemini_web_search` tool.
+  # You can also set GEMINI_API_KEY or GOOGLE_API_KEY in the environment.
+  api_key: ""
+  # Optional base URL for Gemini-compatible providers / gateways.
+  base_url: https://generativelanguage.googleapis.com
+  # Optional Gemini model for web search lookups.
+  model: gemini-3-flash-preview
+
 prompts:
   # Built-in or custom prompt packs to append to the base system prompt.
   system_prompt_packs:
@@ -135,7 +144,8 @@ runtime:
   mermaid_validation_mode: auto
   # Maximum Mermaid repair retries triggered by validation failures within one request.
   mermaid_validation_max_retries: 3
-  # `block` = still block document writes after retry exhaustion; `allow_write` = allow later writes to bypass validation.
+  # `block` = still block document writes after retry exhaustion;
+  # `allow_write` = allow later writes to bypass validation.
   mermaid_validation_exhausted_action: allow_write
   # Mermaid validation timeout per block, in seconds.
   mermaid_validation_timeout_seconds: 20
@@ -155,6 +165,13 @@ logging:
 # Optional advanced tuning fields.
 # These are still real config keys, but they map directly to flat AppSettings fields
 # instead of the grouped YAML sections above.
+
+# Optional Gemini-powered web search helper. If `gemini_api_key` is not set,
+# the `ask_gemini_web_search` tool stays unavailable.
+#
+# gemini:
+#   api_key: ""
+#   model: gemini-3-flash-preview
 
 # Shell command timeout for the `run_shell` tool, in seconds.
 # tool_shell_timeout_seconds: 120
@@ -313,6 +330,11 @@ _GROUPED_CONFIG_FIELDS = {
         "internal_prompt_dir": "internal_prompt_dir",
         "system_prompt_packs": "system_prompt_packs",
     },
+    "gemini": {
+        "api_key": "gemini_api_key",
+        "base_url": "gemini_base_url",
+        "model": "gemini_model",
+    },
     "features": {
         "memory_actions": "memory_action_enabled",
         "memory_updates": "memory_update_enabled",
@@ -394,6 +416,13 @@ class AppSettings(BaseSettings):
     )
     mention_alias_fallback_enabled: bool = False
     trigger_on_reply_to_agent: bool = True
+
+    gemini_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY", "gemini_api_key"),
+    )
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
+    gemini_model: str = "gemini-3-flash-preview"
 
     model_ref: str | None = None
     action_router_model_ref: str | None = None

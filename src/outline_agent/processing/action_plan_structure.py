@@ -20,6 +20,7 @@ _DOCUMENT_TOOLS = {
 
 _READ_ONLY_TOOLS = {
     "get_current_document",
+    "ask_gemini_web_search",
     "list_dir",
     "read_file",
     "download_attachment",
@@ -124,6 +125,8 @@ def action_plan_may_change_state(proposal: UnifiedToolPlan) -> bool:
 
 
 def preview_action_plan_step(tool_name: str, args: dict[str, Any]) -> str:
+    if tool_name == "ask_gemini_web_search":
+        return f"ask_gemini_web_search[{truncate(str(args.get('query') or '?'), 60)}]"
     if tool_name in {"list_dir", "read_file", "write_file", "edit_file", "upload_attachment"}:
         return f"{tool_name}[{str(args.get('path') or '?')}]"
     if tool_name == "run_shell":
@@ -148,6 +151,8 @@ def describe_action_plan_for_progress(round_index: int, proposal: UnifiedToolPla
 def describe_action_step_for_progress(tool_name: str, args: dict[str, Any]) -> str:
     if tool_name == "get_current_document":
         return "load the current Outline document"
+    if tool_name == "ask_gemini_web_search":
+        return f"look up web information with Gemini for `{preview(str(args.get('query') or '?'), 80)}`"
     if tool_name == "draft_new_document":
         return "draft a new Outline document"
     if tool_name == "create_document":
@@ -204,6 +209,7 @@ def available_action_tool_specs(
                 "run_shell",
                 "upload_attachment",
                 "download_attachment",
+                "ask_gemini_web_search",
                 "extract_text_from_txt",
                 "extract_text_from_md",
                 "extract_text_from_csv",

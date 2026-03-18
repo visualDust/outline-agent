@@ -2,11 +2,9 @@
 
 Webhook-driven Outline comment agent.
 
-This service listens for Outline comment webhooks, gathers document and thread context, optionally uses local tools or document actions, and replies back into the same comment thread.
+![Outline Agent demo](docs/assets/outline-agent-demo.gif)
 
-## Demo
-
-- Placeholder: add an asciinema / screen-recording GIF here that shows mention -> tool call progress -> final reply.
+This service listens for Outline comment webhooks, gathers document and thread context, optionally uses tools, web search, or document actions, and replies back into the same comment thread or helps with document editing.
 
 ## Quick Start
 
@@ -36,17 +34,9 @@ outline-agent start
 
 On first start, if `~/.outline-agent/config.yaml` does not exist yet, the CLI creates it and exits so you can edit it.
 
-Main local config location:
-
-- `~/.outline-agent/config.yaml`
-
-Main local runtime data location:
-
-- `~/.outline-agent/data/`
-
-By default the service binds to:
-
-- `127.0.0.1:8787`
+- Main local config location: `~/.outline-agent/config.yaml`
+- Main local runtime data location: `~/.outline-agent/data/`
+- By default the service binds to: `127.0.0.1:8787`
 
 You can change host/port in `~/.outline-agent/config.yaml` or via CLI flags.
 
@@ -56,17 +46,9 @@ If you installed from PyPI and want local Mermaid validation, install a Mermaid 
 
 ```bash
 npm install -g @mermaid-js/mermaid-cli
-```
-
-Then verify:
-
-```bash
 mmdc --version
-```
 
-If the binary is not on your normal shell `PATH`, you can point the agent at it explicitly:
-
-```bash
+# If the binary is not on your normal shell `PATH`, you can point the agent at it explicitly:
 export OUTLINE_AGENT_MERMAID_CLI_PATH=/path/to/mmdc
 ```
 
@@ -90,6 +72,7 @@ Then edit:
   - `outline.api_key`
   - `outline.webhook_signing_secret`
   - `model_profiles`
+  - `gemini`
 
 Start the service:
 
@@ -274,6 +257,7 @@ If the API key is invalid or expired, startup will fail clearly. If a long-runni
 - `trigger`: mention/all mode, aliases, collection filtering
 - `model`: default runtime model ref and request timeout (`timeout_seconds`)
 - `model_profiles`: provider credentials and allowed model names
+- `gemini`: optional Gemini-compatible API key/base URL/model for the `ask_gemini_web_search` tool
 - `prompts`: system prompt overrides and prompt packs
 - `features`: enable or disable memory, document updates, tools, reactions, progress comments, and related docs
 - `runtime`: dry-run mode, planning/execution limits, and Mermaid validation behavior

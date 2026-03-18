@@ -155,6 +155,8 @@ def test_build_user_prompt_includes_memory_runtime_and_outcome_sections(tmp_path
     assert "Reply directly and keep it concise." in prompt
     assert "keep the comment reply short" in prompt
     assert "keep the comment reply very short" in prompt
+    assert "Runtime time facts:" in prompt
+    assert "Current datetime (UTC):" in prompt
 
 
 def test_tool_planner_prompt_includes_rounds_inventory_and_attachment_context(tmp_path: Path) -> None:
@@ -167,7 +169,12 @@ def test_tool_planner_prompt_includes_rounds_inventory_and_attachment_context(tm
     manager = CollectionWorkspaceManager(settings.workspace_root)
     workspace = manager.ensure(collection_id="collection-1", collection_name="Demo Collection")
     document_workspace = manager.ensure_document(workspace, document_id="doc-1", document_title="Kickoff")
-    thread_workspace = manager.ensure_thread(workspace, thread_id="thread-1", document_id="doc-1", document_title="Kickoff")
+    thread_workspace = manager.ensure_thread(
+        workspace,
+        thread_id="thread-1",
+        document_id="doc-1",
+        document_title="Kickoff",
+    )
     (workspace.workspace_dir / "report.txt").write_text("artifact-generated-in-round-one\n", encoding="utf-8")
 
     planner = UnifiedToolPlanner(settings, model_client=object())
@@ -220,3 +227,5 @@ def test_tool_planner_prompt_includes_rounds_inventory_and_attachment_context(tm
     assert "source_url=/api/attachments.redirect?id=att-1" in prompt
     assert "Current Outline document ID: doc-1" in prompt
     assert "The latest user comment also includes 1 embedded image." in prompt
+    assert "Runtime time facts:" in prompt
+    assert "Current datetime (UTC):" in prompt

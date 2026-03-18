@@ -1,0 +1,17 @@
+include README.md
+include pyproject.toml
+
+recursive-include src/outline_agent/assets/prompts *.md
+
+prune tests
+prune docs
+prune dev-docs
+prune docker
+prune .github
+
+exclude .env.example
+exclude config.example.yaml
+exclude config.yaml
+exclude docker-compose.example.yml
+exclude Dockerfile
+exclude .dockerignore

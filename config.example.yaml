@@ -46,7 +46,7 @@ model:
 
 model_profiles:
   # Default `alias/model-name` ref used when `model.ref` is null.
-  default: demo/gpt-4.1-mini
+  default: demo/gpt-5.2
   profiles:
     demo:
       # Provider adapter name used by the runtime.
@@ -57,7 +57,17 @@ model_profiles:
       api_key: ""
       # Allowed model names under this alias. The first one is the default.
       models:
-        - gpt-4.1-mini
+        - gpt-5.2
+        - gpt-5.4
+
+gemini:
+  # Optional Gemini API key for the `ask_gemini_web_search` tool.
+  # You can also set GEMINI_API_KEY or GOOGLE_API_KEY in the environment.
+  api_key: ""
+  # Optional base URL for Gemini-compatible gateways/providers.
+  base_url: https://generativelanguage.googleapis.com
+  # Optional Gemini model for web search lookups.
+  model: gemini-3-flash-preview
 
 prompts:
   # Built-in or custom prompt packs to append to the base system prompt.

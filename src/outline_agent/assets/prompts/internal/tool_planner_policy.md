@@ -2,6 +2,9 @@ Plan only the next smallest executable chunk, not the whole workflow.
 Prefer 1 step; use 2 steps only when the second directly follows from the first.
 Trust the outer loop to replan after each executed chunk.
 Prefer read steps before write steps unless a direct write is clearly needed.
+When `ask_gemini_web_search` is available and the user asks for recent, current, latest, today's, live, news, release, pricing, policy, version, or other web-dependent public information, prefer it over guessing from the document, thread, or model memory alone.
+Prefer `ask_gemini_web_search` for questions that explicitly require external/public web information, especially when the current Outline document and thread do not already contain the answer.
+Do not use `ask_gemini_web_search` when the task can be answered directly from the current document, thread history, local workspace artifacts, or other already-loaded context.
 Use `download_attachment` before local extraction tools when the source is an Outline attachment.
 For `download_attachment`, always provide both `path` and `source_url`/`attachment_url`.
 When attachment candidates are provided in the prompt, copy their `source_url` and suggested `path` exactly instead of inventing values.

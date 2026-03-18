@@ -11,6 +11,7 @@ This document lists the current built-in tool surface available to the agent.
 | `create_document` | Outline document | Write | Create a new Outline document | Create a separate summary, note, report, or derived doc |
 | `draft_document_update` | Outline drafting | Read | Draft a safe update to the current Outline document | Before `apply_document_update` |
 | `apply_document_update` | Outline document | Write | Apply a drafted update to the current Outline document | Edit/replace/extend the current doc |
+| `ask_gemini_web_search` | External search | External | Ask Gemini with Google Search enabled for fresh web information | Recent/current/web-dependent lookups |
 | `list_dir` | Workspace | Read | Inspect files in the collection work directory | Discover files before reading/editing/running commands |
 | `read_file` | Workspace | Read | Read a text file from the collection work directory | Inspect generated or downloaded files |
 | `write_file` | Workspace | Write | Create or overwrite a workspace file | Generate temp files, scripts, markdown, HTML, etc. |
@@ -34,6 +35,7 @@ This document lists the current built-in tool surface available to the agent.
 | Focused shell execution | `run_shell` | Used for conversions/rendering when file ops alone are insufficient |
 | Attachment round-trip | `download_attachment`, `upload_attachment` | Download user files, upload generated artifacts |
 | Text extraction | `extract_text_from_txt`, `extract_text_from_md`, `extract_text_from_csv`, `extract_text_from_pdf` | Best-effort text ingestion for local files |
+| Fresh web lookup | `ask_gemini_web_search` | Registered only when a Gemini API key is configured |
 
 ## Important behavior notes
 

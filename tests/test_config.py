@@ -142,3 +142,28 @@ def test_prompt_registry_prefers_project_user_optional_prompts_over_package_defa
 def test_missing_system_prompt_file_raises_helpful_error(config_paths: dict[str, Path]) -> None:
     with pytest.raises(ValidationError, match="Required text file does not exist"):
         AppSettings(system_prompt_path=Path("prompts/user/does-not-exist.md"))
+
+
+def test_gemini_api_key_can_come_from_google_api_key_env(
+    config_paths: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-key-from-env")
+
+    settings = AppSettings()
+
+    assert settings.gemini_api_key == "google-key-from-env"
+
+
+def test_gemini_base_url_can_be_configured_from_yaml(config_paths: dict[str, Path]) -> None:
+    (config_paths["user_root"] / "config.yaml").write_text(
+        """
+gemini:
+  base_url: https://gemini-gateway.example.com
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings = AppSettings()
+
+    assert settings.gemini_base_url == "https://gemini-gateway.example.com"
