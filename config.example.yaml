@@ -60,14 +60,25 @@ model_profiles:
         - gpt-5.2
         - gpt-5.4
 
-gemini:
-  # Optional Gemini API key for the `ask_gemini_web_search` tool.
-  # You can also set GEMINI_API_KEY or GOOGLE_API_KEY in the environment.
-  api_key: ""
-  # Optional base URL for Gemini-compatible gateways/providers.
-  base_url: https://generativelanguage.googleapis.com
-  # Optional Gemini model for web search lookups.
-  model: gemini-3-flash-preview
+web_search:
+  # Choose which provider backs the `ask_web_search` tool.
+  provider: gemini
+  gemini:
+    # Optional Gemini API key for the `ask_web_search` tool when provider=gemini.
+    # You can also set GEMINI_API_KEY or GOOGLE_API_KEY in the environment.
+    api_key: ""
+    # Optional base URL for Gemini-compatible gateways/providers.
+    base_url: https://generativelanguage.googleapis.com
+    # Optional Gemini model for web search lookups.
+    model: gemini-3-flash-preview
+  openai:
+    # Optional OpenAI API key for the `ask_web_search` tool when provider=openai.
+    # You can also set OPENAI_WEB_SEARCH_API_KEY or OPENAI_API_KEY in the environment.
+    api_key: ""
+    # Optional base URL for OpenAI-compatible gateways/providers.
+    base_url: https://api.openai.com/v1
+    # Optional OpenAI model for web search lookups.
+    model: gpt-5
 
 prompts:
   # Built-in or custom prompt packs to append to the base system prompt.

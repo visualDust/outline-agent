@@ -10,7 +10,7 @@ from pathlib import Path
 import uvicorn
 
 from ..bootstrap import validate_outline_runtime_identity
-from ..clients.gemini_web_search import has_gemini_web_search_api_key
+from ..clients.web_search import get_web_search_probe
 from ..core.config import (
     APP_NAME,
     OUTLINE_AGENT_CONFIG_PATH_ENV,
@@ -244,10 +244,9 @@ def _collect_startup_warnings(settings: AppSettings) -> list[str]:
         warnings.append("OUTLINE_API_KEY is not configured")
     if not settings.outline_webhook_signing_secret:
         warnings.append("OUTLINE_WEBHOOK_SIGNING_SECRET is not configured")
-    if settings.tool_use_enabled and not has_gemini_web_search_api_key(settings):
-        warnings.append(
-            "GEMINI_API_KEY / GOOGLE_API_KEY is not configured; ask_gemini_web_search will be unavailable"
-        )
+    web_search_probe = get_web_search_probe(settings)
+    if settings.tool_use_enabled and not web_search_probe.available:
+        warnings.append(f"{web_search_probe.reason}; ask_web_search will be unavailable")
     return warnings
 
 

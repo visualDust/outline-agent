@@ -86,14 +86,25 @@ model_profiles:
       models:
         - gpt-4.1-mini
 
-gemini:
-  # Optional Gemini API key for the `ask_gemini_web_search` tool.
-  # You can also set GEMINI_API_KEY or GOOGLE_API_KEY in the environment.
-  api_key: ""
-  # Optional base URL for Gemini-compatible providers / gateways.
-  base_url: https://generativelanguage.googleapis.com
-  # Optional Gemini model for web search lookups.
-  model: gemini-3-flash-preview
+web_search:
+  # Choose which provider backs the `ask_web_search` tool.
+  provider: gemini
+  gemini:
+    # Optional Gemini API key for the `ask_web_search` tool when provider=gemini.
+    # You can also set GEMINI_API_KEY or GOOGLE_API_KEY in the environment.
+    api_key: ""
+    # Optional base URL for Gemini-compatible providers / gateways.
+    base_url: https://generativelanguage.googleapis.com
+    # Optional Gemini model for web search lookups.
+    model: gemini-3-flash-preview
+  openai:
+    # Optional OpenAI API key for the `ask_web_search` tool when provider=openai.
+    # You can also set OPENAI_WEB_SEARCH_API_KEY or OPENAI_API_KEY in the environment.
+    api_key: ""
+    # Optional base URL for OpenAI-compatible providers / gateways.
+    base_url: https://api.openai.com/v1
+    # Optional OpenAI model for web search lookups.
+    model: gpt-5
 
 prompts:
   # Built-in or custom prompt packs to append to the base system prompt.
@@ -166,12 +177,17 @@ logging:
 # These are still real config keys, but they map directly to flat AppSettings fields
 # instead of the grouped YAML sections above.
 
-# Optional Gemini-powered web search helper. If `gemini_api_key` is not set,
-# the `ask_gemini_web_search` tool stays unavailable.
+# Optional web search helper provider selection. If the selected provider's API key
+# is not set, the `ask_web_search` tool stays unavailable.
 #
-# gemini:
-#   api_key: ""
-#   model: gemini-3-flash-preview
+# web_search:
+#   provider: gemini
+#   gemini:
+#     api_key: ""
+#     model: gemini-3-flash-preview
+#   openai:
+#     api_key: ""
+#     model: gpt-5
 
 # Shell command timeout for the `run_shell` tool, in seconds.
 # tool_shell_timeout_seconds: 120
@@ -330,11 +346,6 @@ _GROUPED_CONFIG_FIELDS = {
         "internal_prompt_dir": "internal_prompt_dir",
         "system_prompt_packs": "system_prompt_packs",
     },
-    "gemini": {
-        "api_key": "gemini_api_key",
-        "base_url": "gemini_base_url",
-        "model": "gemini_model",
-    },
     "features": {
         "memory_actions": "memory_action_enabled",
         "memory_updates": "memory_update_enabled",
@@ -423,6 +434,20 @@ class AppSettings(BaseSettings):
     )
     gemini_base_url: str = "https://generativelanguage.googleapis.com"
     gemini_model: str = "gemini-3-flash-preview"
+    web_search_provider: Literal["gemini", "openai"] = Field(
+        default="gemini",
+        validation_alias=AliasChoices("WEB_SEARCH_PROVIDER", "web_search_provider"),
+    )
+    openai_web_search_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "OPENAI_WEB_SEARCH_API_KEY",
+            "OPENAI_API_KEY",
+            "openai_web_search_api_key",
+        ),
+    )
+    openai_web_search_base_url: str = "https://api.openai.com/v1"
+    openai_web_search_model: str = "gpt-5"
 
     model_ref: str | None = None
     action_router_model_ref: str | None = None
@@ -523,6 +548,28 @@ class AppSettings(BaseSettings):
             for nested_key, flat_key in field_map.items():
                 if flat_key not in flattened and nested_key in section:
                     flattened[flat_key] = section[nested_key]
+        web_search = flattened.get("web_search")
+        if isinstance(web_search, dict):
+            if "web_search_provider" not in flattened and "provider" in web_search:
+                flattened["web_search_provider"] = web_search["provider"]
+            gemini_section = web_search.get("gemini")
+            if isinstance(gemini_section, dict):
+                for nested_key, flat_key in {
+                    "api_key": "gemini_api_key",
+                    "base_url": "gemini_base_url",
+                    "model": "gemini_model",
+                }.items():
+                    if flat_key not in flattened and nested_key in gemini_section:
+                        flattened[flat_key] = gemini_section[nested_key]
+            openai_section = web_search.get("openai")
+            if isinstance(openai_section, dict):
+                for nested_key, flat_key in {
+                    "api_key": "openai_web_search_api_key",
+                    "base_url": "openai_web_search_base_url",
+                    "model": "openai_web_search_model",
+                }.items():
+                    if flat_key not in flattened and nested_key in openai_section:
+                        flattened[flat_key] = openai_section[nested_key]
         return flattened
 
     @field_validator(

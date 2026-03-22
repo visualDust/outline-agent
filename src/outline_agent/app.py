@@ -18,9 +18,9 @@ from .bootstrap import (
     resolve_primary_model_status,
     validate_outline_runtime_identity,
 )
-from .clients.gemini_web_search import get_gemini_web_search_probe, has_gemini_web_search_api_key
 from .clients.model_client import ModelClientError
 from .clients.outline_client import OutlineClient, OutlineClientError
+from .clients.web_search import get_web_search_probe, has_active_web_search_api_key
 from .core.config import AppSettings, get_settings
 from .core.logging import configure_logging, logger
 from .models.model_profiles import ModelProfileError
@@ -40,7 +40,7 @@ async def lifespan(_: FastAPI):
     if not settings.runtime_outline_user_id:
         await validate_outline_runtime_identity(settings)
     mermaid_probe = get_mermaid_validator_probe(settings, log_warning=True)
-    gemini_probe = get_gemini_web_search_probe(settings)
+    web_search_probe = get_web_search_probe(settings)
     logger.info(
         "Starting {} on {}:{} (trigger_mode={}, dry_run={}, document_updates={}, "
         "reactions={}, mermaid_validation={}::{}::{}, mermaid_available={}, tool_rounds={}, "
@@ -61,15 +61,16 @@ async def lifespan(_: FastAPI):
         settings.tool_execution_chunk_size,
         settings.log_level,
     )
-    if settings.tool_use_enabled and gemini_probe.available:
+    if settings.tool_use_enabled and web_search_probe.available:
         logger.info(
-            "Gemini web search ready: backend={}, model={}, base_url={}",
-            gemini_probe.backend,
-            gemini_probe.model,
-            gemini_probe.base_url,
+            "Web search ready: provider={}, backend={}, model={}, base_url={}",
+            web_search_probe.provider,
+            web_search_probe.backend,
+            web_search_probe.model,
+            web_search_probe.base_url,
         )
     elif settings.tool_use_enabled:
-        logger.warning("ask_gemini_web_search is unavailable: {}", gemini_probe.reason or "unknown reason")
+        logger.warning("ask_web_search is unavailable: {}", web_search_probe.reason or "unknown reason")
     yield
 
 
@@ -82,7 +83,7 @@ def healthz() -> dict[str, Any]:
     settings = get_settings()
     model_status = resolve_primary_model_status(settings)
     mermaid_probe = get_mermaid_validator_probe(settings)
-    gemini_probe = get_gemini_web_search_probe(settings)
+    web_search_probe = get_web_search_probe(settings)
 
     return {
         "ok": True,
@@ -100,16 +101,20 @@ def healthz() -> dict[str, Any]:
             settings.document_update_model_ref or settings.memory_model_ref or settings.model_ref
         ),
         "tool_use_enabled": settings.tool_use_enabled,
-        "ask_gemini_web_search_available": has_gemini_web_search_api_key(settings),
-        "gemini_web_search": {
-            "available": gemini_probe.available,
-            "backend": gemini_probe.backend,
-            "base_url": gemini_probe.base_url,
-            "model": gemini_probe.model,
-            "reason": gemini_probe.reason,
+        "ask_web_search_available": has_active_web_search_api_key(settings),
+        "web_search_provider": settings.web_search_provider,
+        "web_search": {
+            "available": web_search_probe.available,
+            "provider": web_search_probe.provider,
+            "backend": web_search_probe.backend,
+            "base_url": web_search_probe.base_url,
+            "model": web_search_probe.model,
+            "reason": web_search_probe.reason,
         },
         "gemini_base_url": settings.gemini_base_url,
         "gemini_model": settings.gemini_model,
+        "openai_web_search_base_url": settings.openai_web_search_base_url,
+        "openai_web_search_model": settings.openai_web_search_model,
         "tool_model_ref": settings.tool_model_ref or settings.memory_model_ref or settings.model_ref,
         "tool_execution_max_rounds": settings.tool_execution_max_rounds,
         "tool_execution_max_steps": settings.tool_execution_max_steps,

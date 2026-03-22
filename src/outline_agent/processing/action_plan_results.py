@@ -189,11 +189,11 @@ def tool_result_to_step_result(tool_name: str, args: dict[str, Any], result: Any
             "upload_attachment",
         }:
             target = args.get("path") if isinstance(args.get("path"), str) else None
-        elif tool_name == "ask_gemini_web_search":
+        elif tool_name == "ask_web_search":
             target = args.get("query") if isinstance(args.get("query"), str) else None
         elif tool_name == "run_shell":
             target = args.get("command") if isinstance(args.get("command"), str) else None
-    if tool_name == "ask_gemini_web_search" and stdout is None:
+    if tool_name == "ask_web_search" and stdout is None:
         stdout = data.get("answer") if isinstance(data.get("answer"), str) else None
     approval = data.get("approval") if isinstance(data.get("approval"), dict) else {}
     approval_required = bool(approval.get("required"))

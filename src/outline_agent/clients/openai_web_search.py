@@ -7,15 +7,15 @@ import httpx
 from .web_search_base import DEFAULT_WEB_SEARCH_SYSTEM_INSTRUCTION, WebSearchClientError
 
 
-class GeminiWebSearchClient:
-    provider = "gemini-google-search"
+class OpenAIWebSearchClient:
+    provider = "openai-web-search"
 
     def __init__(
         self,
         *,
         api_key: str,
-        base_url: str = "https://generativelanguage.googleapis.com",
-        model: str = "gemini-3-flash-preview",
+        base_url: str = "https://api.openai.com/v1",
+        model: str = "gpt-5",
         timeout: float = 120.0,
         system_instruction: str = DEFAULT_WEB_SEARCH_SYSTEM_INSTRUCTION,
     ) -> None:
@@ -30,29 +30,23 @@ class GeminiWebSearchClient:
         if not cleaned_query:
             raise WebSearchClientError("query is required")
 
-        url = f"{self.base_url}/v1beta/models/{self.model}:generateContent"
+        url = f"{self.base_url}/responses"
         payload = {
-            "system_instruction": {
-                "parts": [
-                    {
-                        "text": self.system_instruction,
-                    }
-                ]
-            },
-            "contents": [
+            "model": self.model,
+            "tools": [{"type": "web_search"}],
+            "input": [
                 {
-                    "parts": [
-                        {
-                            "text": cleaned_query,
-                        }
-                    ]
-                }
+                    "role": "system",
+                    "content": [{"type": "input_text", "text": self.system_instruction}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": cleaned_query}],
+                },
             ],
-            "tools": [{"google_search": {}}],
-            "generationConfig": {"temperature": 0.2},
         }
         headers = {
-            "x-goog-api-key": self.api_key,
+            "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
 
@@ -64,35 +58,36 @@ class GeminiWebSearchClient:
 
         if response.is_error:
             raise WebSearchClientError(
-                f"Gemini API error {response.status_code}: {_extract_error_message(response)}"
+                f"OpenAI web search API error {response.status_code}: {_extract_error_message(response)}"
             )
 
         data = response.json()
         if not isinstance(data, dict):
-            raise WebSearchClientError("Gemini API returned a non-object JSON response")
+            raise WebSearchClientError("OpenAI web search API returned a non-object JSON response")
+
+        output_text = data.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text.strip()
 
         text = _extract_text(data)
         if not text:
-            raise WebSearchClientError("Gemini returned no text content")
+            raise WebSearchClientError("OpenAI web search returned no text content")
         return text
 
 
 def _extract_text(response_data: dict[str, Any]) -> str:
-    candidates = response_data.get("candidates")
-    if not isinstance(candidates, list):
+    output = response_data.get("output")
+    if not isinstance(output, list):
         return ""
 
     fragments: list[str] = []
-    for candidate in candidates:
-        if not isinstance(candidate, dict):
+    for item in output:
+        if not isinstance(item, dict):
             continue
-        content = candidate.get("content")
-        if not isinstance(content, dict):
+        content = item.get("content")
+        if not isinstance(content, list):
             continue
-        parts = content.get("parts")
-        if not isinstance(parts, list):
-            continue
-        for part in parts:
+        for part in content:
             if not isinstance(part, dict):
                 continue
             text = part.get("text")
@@ -132,5 +127,5 @@ def _format_httpx_error(exc: httpx.HTTPError, *, url: str) -> str:
         request_summary = f" during POST {url}"
 
     if message:
-        return f"Gemini web search request failed ({error_type}){request_summary}: {message}"
-    return f"Gemini web search request failed ({error_type}){request_summary}"
+        return f"OpenAI web search request failed ({error_type}){request_summary}: {message}"
+    return f"OpenAI web search request failed ({error_type}){request_summary}"

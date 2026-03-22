@@ -72,7 +72,7 @@ Then edit:
   - `outline.api_key`
   - `outline.webhook_signing_secret`
   - `model_profiles`
-  - `gemini`
+  - `web_search`
 
 Start the service:
 
@@ -164,7 +164,7 @@ That installs the repo-pinned Mermaid CLI dependency into `node_modules/.bin/mmd
 Then run:
 
 ```bash
-outline-agent start --reload
+uv run outline-agent start --reload
 ```
 
 or:
@@ -257,7 +257,9 @@ If the API key is invalid or expired, startup will fail clearly. If a long-runni
 - `trigger`: mention/all mode, aliases, collection filtering
 - `model`: default runtime model ref and request timeout (`timeout_seconds`)
 - `model_profiles`: provider credentials and allowed model names
-- `gemini`: optional Gemini-compatible API key/base URL/model for the `ask_gemini_web_search` tool
+- `web_search`: selects which provider backs the `ask_web_search` tool
+- `web_search.gemini`: Gemini API key/base URL/model for `ask_web_search` when `web_search.provider=gemini`
+- `web_search.openai`: OpenAI API key/base URL/model for `ask_web_search` when `web_search.provider=openai`
 - `prompts`: system prompt overrides and prompt packs
 - `features`: enable or disable memory, document updates, tools, reactions, progress comments, and related docs
 - `runtime`: dry-run mode, planning/execution limits, and Mermaid validation behavior

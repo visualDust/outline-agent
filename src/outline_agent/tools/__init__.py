@@ -12,6 +12,7 @@ from .extract_text import build_default_extract_text_tools
 from .gemini_web_search import AskGeminiWebSearchTool
 from .outline_tools import CreateDocumentTool, GetCurrentDocumentTool
 from .registry import ToolRegistry
+from .web_search import AskWebSearchTool
 from .workspace_tools import (
     DownloadAttachmentTool,
     EditFileTool,
@@ -31,6 +32,7 @@ __all__ = [
     "DraftNewDocumentTool",
     "CreateDocumentTool",
     "AskGeminiWebSearchTool",
+    "AskWebSearchTool",
     "build_default_tool_registry",
     "build_tool_approval_policy",
     "DownloadAttachmentTool",

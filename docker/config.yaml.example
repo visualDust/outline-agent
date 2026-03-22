@@ -31,6 +31,17 @@ model_profiles:
       models:
         - gpt-4.1-mini
 
+web_search:
+  provider: gemini
+  gemini:
+    api_key: ""
+    base_url: https://generativelanguage.googleapis.com
+    model: gemini-3-flash-preview
+  openai:
+    api_key: ""
+    base_url: https://api.openai.com/v1
+    model: gpt-5
+
 prompts:
   system_prompt_packs:
     - outline_style

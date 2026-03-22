@@ -108,13 +108,13 @@ def describe_tool_result_for_progress(result: ToolStepResult) -> str:
             )
         return f"Stopped: uploading `{target}` as an Outline attachment failed."
 
-    if result.tool == "ask_gemini_web_search":
+    if result.tool == "ask_web_search":
         target = result.target or "query"
         if result.ok and result.stdout:
-            return f"Finished: Gemini web search answered `{target}` → `{progress_inline(result.stdout, limit=100)}`."
+            return f"Finished: web search answered `{target}` → `{progress_inline(result.stdout, limit=100)}`."
         if result.ok:
-            return f"Finished: Gemini web search answered `{target}`."
-        return f"Stopped: Gemini web search failed for `{target}`."
+            return f"Finished: web search answered `{target}`."
+        return f"Stopped: web search failed for `{target}`."
 
     return _append_auto_approval_note(f"Finished: {result.summary}.", result)
 

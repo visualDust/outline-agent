@@ -181,15 +181,19 @@ If you omit `model.ref`, the runtime uses `model_profiles.default`.
 | `model_profiles.profiles.<alias>.api_key` | Yes | none | API key used for that model provider. | Must be non-empty for resolution to succeed. |
 | `model_profiles.profiles.<alias>.models` | Yes | none | Allowed model names under that alias. | The first model in the list is treated as the default. |
 
-## `gemini`
+## `web_search`
 
-Optional Gemini settings used only for the `ask_gemini_web_search` tool.
+Controls which backend powers the `ask_web_search` tool.
 
 | Field | Required | Default | Meaning | Notes |
 |---|---:|---|---|---|
-| `gemini.api_key` | No | empty | Gemini API key for web search lookups. | Environment variables `GEMINI_API_KEY` and `GOOGLE_API_KEY` also work. If absent, the tool is not registered. |
-| `gemini.base_url` | No | `https://generativelanguage.googleapis.com` | Base URL for Gemini-compatible providers or gateways. | The runtime appends `/v1beta/models/{model}:generateContent`. |
-| `gemini.model` | No | `gemini-3-flash-preview` | Gemini model name used for web search lookups. | Only affects the web search helper tool. |
+| `web_search.provider` | No | `gemini` | Selected provider for the built-in web search tool. | Supported values: `gemini`, `openai`. |
+| `web_search.gemini.api_key` | No | empty | Gemini API key for web search lookups. | Environment variables `GEMINI_API_KEY` and `GOOGLE_API_KEY` also work. If absent, `ask_web_search` stays unavailable when Gemini is selected. |
+| `web_search.gemini.base_url` | No | `https://generativelanguage.googleapis.com` | Base URL for Gemini-compatible providers or gateways. | The runtime appends `/v1beta/models/{model}:generateContent`. |
+| `web_search.gemini.model` | No | `gemini-3-flash-preview` | Gemini model name used for web search lookups. | Only affects the web search helper tool. |
+| `web_search.openai.api_key` | No | empty | OpenAI API key for web search lookups. | Environment variables `OPENAI_WEB_SEARCH_API_KEY` and `OPENAI_API_KEY` also work. If absent, `ask_web_search` stays unavailable when OpenAI is selected. |
+| `web_search.openai.base_url` | No | `https://api.openai.com/v1` | Base URL for OpenAI-compatible providers or gateways. | The runtime appends `/responses`. |
+| `web_search.openai.model` | No | `gpt-5` | OpenAI model name used for web search lookups. | The request is sent through the Responses API with the `web_search` tool enabled. |
 
 ---
 

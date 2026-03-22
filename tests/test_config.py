@@ -155,11 +155,13 @@ def test_gemini_api_key_can_come_from_google_api_key_env(
     assert settings.gemini_api_key == "google-key-from-env"
 
 
-def test_gemini_base_url_can_be_configured_from_yaml(config_paths: dict[str, Path]) -> None:
+def test_gemini_base_url_can_be_configured_from_nested_web_search_yaml(config_paths: dict[str, Path]) -> None:
     (config_paths["user_root"] / "config.yaml").write_text(
         """
-gemini:
-  base_url: https://gemini-gateway.example.com
+web_search:
+  provider: gemini
+  gemini:
+    base_url: https://gemini-gateway.example.com
 """.strip(),
         encoding="utf-8",
     )
@@ -167,3 +169,48 @@ gemini:
     settings = AppSettings()
 
     assert settings.gemini_base_url == "https://gemini-gateway.example.com"
+
+
+def test_web_search_provider_can_be_configured_from_yaml(config_paths: dict[str, Path]) -> None:
+    (config_paths["user_root"] / "config.yaml").write_text(
+        """
+web_search:
+  provider: openai
+  openai:
+    model: gpt-5
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings = AppSettings()
+
+    assert settings.web_search_provider == "openai"
+    assert settings.openai_web_search_model == "gpt-5"
+
+
+def test_nested_web_search_gemini_config_can_be_configured_from_yaml(config_paths: dict[str, Path]) -> None:
+    (config_paths["user_root"] / "config.yaml").write_text(
+        """
+web_search:
+  provider: gemini
+  gemini:
+    base_url: https://gemini-nested.example.com
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings = AppSettings()
+
+    assert settings.web_search_provider == "gemini"
+    assert settings.gemini_base_url == "https://gemini-nested.example.com"
+
+
+def test_openai_web_search_api_key_can_come_from_openai_api_key_env(
+    config_paths: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-key-from-env")
+
+    settings = AppSettings(web_search_provider="openai")
+
+    assert settings.openai_web_search_api_key == "openai-key-from-env"
