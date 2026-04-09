@@ -18,6 +18,11 @@ _DOCUMENT_TOOLS = {
     "apply_document_update",
 }
 
+_DRAFT_ONLY_DOCUMENT_TOOLS = {
+    "draft_new_document",
+    "draft_document_update",
+}
+
 _READ_ONLY_TOOLS = {
     "get_current_document",
     "ask_web_search",
@@ -98,6 +103,10 @@ def action_plan_fingerprint(proposal: UnifiedToolPlan) -> tuple[tuple[object, ..
     return tuple(items)
 
 
+def action_plan_step_tools(proposal: UnifiedToolPlan) -> tuple[str, ...]:
+    return tuple(step.tool for step in proposal.steps)
+
+
 def find_repeated_plan_without_intervening_state_change(
     plan_fingerprint: tuple[tuple[object, ...], ...],
     executed_rounds: list[ExecutedToolRound],
@@ -114,6 +123,34 @@ def find_repeated_plan_without_intervening_state_change(
     if any(item.status == "applied" and item.may_change_state for item in intervening_rounds):
         return None
     return executed_rounds[last_match_index]
+
+
+def find_repeated_draft_only_document_round(
+    proposal: UnifiedToolPlan,
+    executed_rounds: list[ExecutedToolRound],
+) -> ExecutedToolRound | None:
+    current_tool = draft_only_document_tool_name(proposal)
+    if current_tool is None or not executed_rounds:
+        return None
+
+    last_round = executed_rounds[-1]
+    if last_round.status != "applied" or last_round.may_change_state:
+        return None
+    if last_round.step_tools != (current_tool,):
+        return None
+    return last_round
+
+
+def draft_only_document_tool_name(proposal: UnifiedToolPlan) -> str | None:
+    step_tools = action_plan_step_tools(proposal)
+    if not step_tools:
+        return None
+    first_tool = step_tools[0]
+    if first_tool not in _DRAFT_ONLY_DOCUMENT_TOOLS:
+        return None
+    if any(tool_name != first_tool for tool_name in step_tools):
+        return None
+    return first_tool
 
 
 def action_plan_is_read_only(proposal: UnifiedToolPlan) -> bool:

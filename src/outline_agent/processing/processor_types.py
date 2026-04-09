@@ -70,6 +70,7 @@ class ToolRoundSummary:
 class ExecutedToolRound:
     round_index: int
     plan_fingerprint: tuple[tuple[object, ...], ...]
+    step_tools: tuple[str, ...]
     status: str
     may_change_state: bool
     read_only: bool

@@ -2111,6 +2111,64 @@ class ReplyAfterRepeatedNoChangeToolLoopGuardModelClient:
         )
 
 
+class RepeatingDraftOnlyDocumentUpdatePlannerModelClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
+        self.calls.append((system_prompt, user_prompt))
+        return json.dumps(
+            {
+                "should_act": True,
+                "goal": "Draft a document update.",
+                "steps": [
+                    {
+                        "tool": "draft_document_update",
+                        "args": {"user_comment": "rewrite the kickoff document"},
+                    }
+                ],
+                "final_response_strategy": "brief_confirmation",
+            }
+        )
+
+
+class RepeatingDraftOnlyDocumentCreatePlannerModelClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
+        self.calls.append((system_prompt, user_prompt))
+        return json.dumps(
+            {
+                "should_act": True,
+                "goal": "Draft a new summary document.",
+                "steps": [
+                    {
+                        "tool": "draft_new_document",
+                        "args": {"user_comment": "please create a new document that summarizes this work"},
+                    }
+                ],
+                "final_response_strategy": "brief_confirmation",
+            }
+        )
+
+
+class ReplyAfterRepeatedDraftOnlyDocumentLoopGuardModelClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
+        self.calls.append((system_prompt, user_prompt))
+        nonreply_response = _maybe_nonreply_planner_response(system_prompt)
+        if nonreply_response is not None:
+            return nonreply_response
+        assert "repeated draft-only document plan detected with no intervening state change" in user_prompt
+        return (
+            "I stopped because the next round was only drafting the same document change again "
+            "without applying it or gathering any new state."
+        )
+
+
 class ChangedFileReuploadToolPlanModelClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
@@ -3075,6 +3133,151 @@ def _seed_thread_summary(
         max_recent_turns=6,
         max_turn_chars=280,
     )
+
+
+def test_comment_processor_blocks_repeated_draft_only_document_update_rounds(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        trigger_mode="mention",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=False,
+        document_update_enabled=True,
+        tool_use_enabled=False,
+        progress_comment_enabled=False,
+    )
+    outline_client = DummyOutlineClient()
+    reply_model_client = ReplyAfterRepeatedDraftOnlyDocumentLoopGuardModelClient()
+    tool_model_client = RepeatingDraftOnlyDocumentUpdatePlannerModelClient()
+    document_update_model_client = DocumentEditDecisionModelClient()
+    processor = CommentProcessor(
+        settings=settings,
+        store=ProcessedEventStore(tmp_path / "processed.json"),
+        outline_client=outline_client,
+        model_client=reply_model_client,
+        document_update_model_client=document_update_model_client,
+        tool_model_client=tool_model_client,
+        action_router_model_client=ActionRouterModelClient(),
+    )
+
+    payload = _load_fixture().model_dump()
+    payload["payload"]["model"]["data"] = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [
+                    {
+                        "type": "mention",
+                        "attrs": {
+                            "id": "some-node-id",
+                            "type": "user",
+                            "label": AGENT_USER_LABEL,
+                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
+                            "modelId": AGENT_USER_ID,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": " please rewrite the kickoff document in a more formal tone and add a short roadmap",
+                    },
+                ],
+            }
+        ],
+    }
+
+    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
+
+    assert result.action == "tool-attempted-and-replied"
+    assert result.reason == "tool-planning-blocked-and-replied"
+    assert result.tool_execution_preview is not None
+    assert "repeated draft-only document plan detected with no intervening state change" in (
+        result.tool_execution_preview.lower()
+    )
+    assert len(tool_model_client.calls) == 2
+    assert len(document_update_model_client.calls) == 1
+    assert outline_client.updated_documents == []
+    assert outline_client.updated_comments[-1] == {
+        "comment_id": "comment-1",
+        "text": (
+            "I stopped because the next round was only drafting the same document change again "
+            "without applying it or gathering any new state."
+        ),
+    }
+    assert result.thread_workspace is not None
+    state = json.loads((Path(result.thread_workspace) / "state.json").read_text(encoding="utf-8"))
+    assert len(state["recent_tool_runs"]) == 1
+    assert state["recent_tool_runs"][0]["status"] == "blocked"
+
+
+def test_comment_processor_blocks_repeated_draft_only_document_create_rounds(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        runtime_outline_user_id=AGENT_USER_ID,
+        mention_aliases=["@agent"],
+        trigger_mode="mention",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=False,
+        document_update_enabled=True,
+        tool_use_enabled=False,
+        progress_comment_enabled=False,
+    )
+    outline_client = DummyOutlineClient()
+    reply_model_client = ReplyAfterRepeatedDraftOnlyDocumentLoopGuardModelClient()
+    tool_model_client = RepeatingDraftOnlyDocumentCreatePlannerModelClient()
+    document_update_model_client = DocumentCreateDecisionModelClient()
+    processor = CommentProcessor(
+        settings=settings,
+        store=ProcessedEventStore(tmp_path / "processed.json"),
+        outline_client=outline_client,
+        model_client=reply_model_client,
+        document_update_model_client=document_update_model_client,
+        tool_model_client=tool_model_client,
+        action_router_model_client=ActionRouterModelClient(),
+    )
+
+    payload = _load_fixture().model_dump()
+    payload["payload"]["model"]["data"] = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [
+                    {
+                        "type": "mention",
+                        "attrs": {
+                            "id": "some-node-id",
+                            "type": "user",
+                            "label": AGENT_USER_LABEL,
+                            "actorId": "fafb5aee-1f7c-4bca-a524-eb99afa30ed0",
+                            "modelId": AGENT_USER_ID,
+                        },
+                    },
+                    {"type": "text", "text": " please create a new document that summarizes this work"},
+                ],
+            }
+        ],
+    }
+
+    result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(payload)))
+
+    assert result.action == "tool-attempted-and-replied"
+    assert result.reason == "tool-planning-blocked-and-replied"
+    assert result.tool_execution_preview is not None
+    assert "repeated draft-only document plan detected with no intervening state change" in (
+        result.tool_execution_preview.lower()
+    )
+    assert len(tool_model_client.calls) == 2
+    assert len(document_update_model_client.calls) == 1
+    assert outline_client.created_documents == []
+    assert result.thread_workspace is not None
+    state = json.loads((Path(result.thread_workspace) / "state.json").read_text(encoding="utf-8"))
+    assert len(state["recent_tool_runs"]) == 1
+    assert state["recent_tool_runs"][0]["status"] == "blocked"
+
 
 def test_comment_processor_can_run_multiple_tool_rounds_before_replying(tmp_path: Path) -> None:
     settings = AppSettings(

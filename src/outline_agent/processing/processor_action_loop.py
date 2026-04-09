@@ -10,7 +10,13 @@ from .action_plan_structure import (
     available_action_tool_specs as _available_action_tool_specs,
 )
 from .action_plan_structure import (
+    draft_only_document_tool_name as _draft_only_document_tool_name,
+)
+from .action_plan_structure import (
     find_redundant_upload_paths_for_unified_plan as _find_redundant_upload_paths_for_unified_plan,
+)
+from .action_plan_structure import (
+    find_repeated_draft_only_document_round as _find_repeated_draft_only_document_round,
 )
 from .action_plan_structure import (
     find_repeated_plan_without_intervening_state_change as _find_repeated_plan_without_intervening_state_change,
@@ -207,6 +213,44 @@ async def execute_action_plan(
                 context=blocked_context,
                 progress_action=(
                     "Stopped: the next action plan only repeated attachment uploads that were already complete."
+                ),
+                record_tool_run=True,
+            )
+
+        prior_draft_round = _find_repeated_draft_only_document_round(
+            proposal,
+            session.executed_rounds,
+        )
+        if prior_draft_round is not None:
+            repeated_draft_tool = _draft_only_document_tool_name(proposal) or proposal.steps[0].tool
+            logger.debug(
+                "Unified action planner blocked repeated draft-only document round for comment {} in round {} "
+                "(repeated_from_round={}, tool={}): {}",
+                comment_id,
+                round_index,
+                prior_draft_round.round_index,
+                repeated_draft_tool,
+                proposed_round.plan_preview,
+            )
+            repeated_preview = (
+                "blocked: repeated draft-only document plan detected with no intervening state change; "
+                f"execution stopped to avoid a loop ({repeated_draft_tool})"
+            )
+            repeated_context = (
+                "- status: blocked\n"
+                "- reason: repeated draft-only document plan detected with no intervening state change. "
+                f"The previous successful round already completed `{repeated_draft_tool}`, and the next plan "
+                "still only drafts again instead of applying the draft or choosing a different follow-up step, "
+                "so execution stopped to avoid an infinite loop.\n"
+                f"- repeated_from_round: {prior_draft_round.round_index}\n"
+                f"- repeated tool: {repeated_draft_tool}"
+            )
+            return await session.stop_with_blocked_round(
+                round_index=round_index,
+                preview=repeated_preview,
+                context=repeated_context,
+                progress_action=(
+                    "Stopped: the next action plan only repeated the same draft-only document step without any new state change."
                 ),
                 record_tool_run=True,
             )

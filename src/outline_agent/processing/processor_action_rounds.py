@@ -21,6 +21,7 @@ from .action_plan_structure import (
     action_plan_fingerprint,
     action_plan_is_read_only,
     action_plan_may_change_state,
+    action_plan_step_tools,
     action_plan_steps_preview,
     describe_action_plan_for_progress,
     proposal_local_steps,
@@ -221,6 +222,7 @@ async def execute_action_round(
         ExecutedToolRound(
             round_index=round_index,
             plan_fingerprint=action_plan_fingerprint(proposal),
+            step_tools=action_plan_step_tools(proposal),
             status=report.status,
             may_change_state=action_plan_may_change_state(proposal),
             read_only=action_plan_is_read_only(proposal),

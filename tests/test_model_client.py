@@ -103,3 +103,70 @@ def test_model_client_httpx_timeout_error_includes_provider_type_and_url(
     assert str(exc_info.value) == (
         "Model request failed (openai-responses/ReadTimeout) during POST https://example.test/v1/responses"
     )
+
+
+def test_model_client_openai_responses_reconstructs_text_from_stream_deltas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = ResolvedModelProfile(
+        alias="demo",
+        provider="openai-responses",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="gpt-5.4",
+    )
+    client = ModelClient(profile=profile, timeout=5, max_output_tokens=123)
+    captured: dict[str, object] = {}
+
+    stream_lines = [
+        'event: response.created',
+        'data: {"type":"response.created","response":{"status":"in_progress","output":[]}}',
+        'event: response.output_text.delta',
+        'data: {"type":"response.output_text.delta","delta":"Hello"}',
+        'event: response.output_text.delta',
+        'data: {"type":"response.output_text.delta","delta":" world"}',
+        'event: response.completed',
+        'data: {"type":"response.completed","response":{"status":"completed","output":[],"output_text":null}}',
+        'data: [DONE]',
+    ]
+
+    class FakeStreamResponse:
+        is_error = False
+        status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def aiter_lines(self):
+            for line in stream_lines:
+                yield line
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method, url, *, json=None, headers=None):
+            captured["method"] = method
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return FakeStreamResponse()
+
+    monkeypatch.setattr("outline_agent.clients.model_client.httpx.AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(client.generate_reply("You are helpful.", "Hello"))
+
+    assert result == "Hello world"
+    assert captured["method"] == "POST"
+    assert captured["url"] == "https://example.test/v1/responses"
+    assert captured["json"]["stream"] is True
+    assert captured["headers"]["Accept"] == "text/event-stream"
