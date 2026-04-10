@@ -14,9 +14,6 @@ from ..state.workspace import CollectionWorkspace
 from .processor_artifacts import (
     append_uploaded_attachment_links as _append_uploaded_attachment_links,
 )
-from .processor_context import (
-    generate_reply_with_optional_images as _generate_reply_with_optional_images,
-)
 from .processor_prompting import (
     build_system_prompt as _build_system_prompt,
 )
@@ -38,6 +35,7 @@ from .processor_reply_persistence import (
 from .processor_reply_persistence import (
     record_thread_turn as _record_thread_turn,
 )
+from .reply_stream_coordinator import ReplyStreamCoordinator
 from .processor_side_effects import (
     post_reply_comment as _post_reply_comment,
 )
@@ -124,6 +122,7 @@ async def generate_reply_text(
     *,
     settings: AppSettings,
     model_client: ModelClient,
+    outline_client: OutlineClient,
     prompt_registry: PromptRegistry,
     prompt_packs: list[PromptPack],
     prepared: PreparedRequest,
@@ -158,12 +157,21 @@ async def generate_reply_text(
         max_document_memory_chars=settings.max_document_memory_chars,
         max_prompt_chars=settings.max_prompt_chars,
     )
-    reply = await _generate_reply_with_optional_images(
+    placeholder_comment_id = (
+        prepared.thread_workspace.progress_comment_id_for(prepared.comment.id)
+        if settings.progress_comment_enabled
+        else None
+    )
+    coordinator = ReplyStreamCoordinator(
         model_client=model_client,
+        outline_client=outline_client,
+        document_id=prepared.comment.documentId,
+        placeholder_comment_id=placeholder_comment_id,
+    )
+    reply = await coordinator.generate_reply(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        comment_id=prepared.comment.id,
-        image_inputs=prepared.comment_image_inputs,
+        input_images=prepared.comment_image_inputs,
     )
     return _append_uploaded_attachment_links(reply, action_outcome.uploaded_attachments)
 

@@ -457,11 +457,13 @@ class OutlineClient:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(url, json=payload, headers=headers)
         except httpx.HTTPError as exc:
-            raise OutlineClientError(f"Outline request failed: {exc}") from exc
+            raise OutlineClientError(_format_outline_httpx_error(exc, endpoint=endpoint, url=url)) from exc
 
         if response.is_error:
             message = _extract_error_message(response)
-            raise OutlineClientError(f"Outline API error {response.status_code}: {message}")
+            raise OutlineClientError(
+                f"Outline API error {response.status_code} during POST {url} [{endpoint}]: {message}"
+            )
 
         data = response.json()
         if not isinstance(data, dict):
@@ -522,3 +524,20 @@ class OutlineClient:
             parts = urlsplit(self.base_url)
             return urlunsplit((parts.scheme, parts.netloc, path_or_url, "", ""))
         return urljoin(f"{self.base_url}/", path_or_url.lstrip("/"))
+
+
+def _format_outline_httpx_error(exc: httpx.HTTPError, *, endpoint: str, url: str) -> str:
+    error_type = type(exc).__name__
+    message = str(exc).strip()
+    request = getattr(exc, "request", None)
+    request_summary = ""
+    if request is not None:
+        method = getattr(request, "method", None) or "POST"
+        request_url = getattr(request, "url", None) or url
+        request_summary = f" during {method} {request_url} [{endpoint}]"
+    else:
+        request_summary = f" during POST {url} [{endpoint}]"
+
+    if message:
+        return f"Outline request failed ({error_type}){request_summary}: {message}"
+    return f"Outline request failed ({error_type}){request_summary}"
