@@ -31,6 +31,15 @@ class ReplyStreamCoordinator:
         user_prompt: str,
         input_images: list[ModelInputImage],
     ) -> str:
+        if not hasattr(self.model_client, "stream_reply_events"):
+            if input_images and hasattr(self.model_client, "generate_reply_with_images"):
+                return await self.model_client.generate_reply_with_images(
+                    system_prompt,
+                    user_prompt,
+                    input_images=input_images,
+                )
+            return await self.model_client.generate_reply(system_prompt, user_prompt)
+
         async for event in self.model_client.stream_reply_events(
             system_prompt,
             user_prompt,

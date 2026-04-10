@@ -40,7 +40,20 @@ class CollectionDeleteModel(BaseModel):
         return self.collectionId or self.id
 
 
-WebhookEventModel = CommentModel | DocumentDeleteModel | CollectionDeleteModel
+class DocumentEventModel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    documentId: str | None = None
+    collectionId: str | None = None
+    title: str | None = None
+
+    @property
+    def resolved_document_id(self) -> str:
+        return self.documentId or self.id
+
+
+WebhookEventModel = CommentModel | DocumentDeleteModel | CollectionDeleteModel | DocumentEventModel
 
 
 class WebhookPayload(BaseModel):
@@ -78,6 +91,8 @@ class WebhookEnvelope(BaseModel):
         model_cls: type[BaseModel] | None = None
         if event.startswith("comments."):
             model_cls = CommentModel
+        elif event in {"documents.create", "documents.update"}:
+            model_cls = DocumentEventModel
         elif event == "documents.delete":
             model_cls = DocumentDeleteModel
         elif event == "collections.delete":

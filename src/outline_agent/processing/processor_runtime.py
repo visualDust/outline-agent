@@ -46,6 +46,7 @@ async def handle_comment(
             store=services.store,
             outline_client=services.outline_client,
             workspace_manager=services.workspace_manager,
+            collection_memory_sync=services.collection_memory_sync,
             envelope=envelope,
         )
     except OutlineClientError as exc:
@@ -66,6 +67,10 @@ async def handle_comment(
             return resolved_trigger
         processing_started = True
         prepared.triggered_alias = resolved_trigger.triggered_alias
+        await services.collection_memory_sync.ensure_initialized_for_chat(
+            workspace=prepared.workspace,
+            collection=prepared.collection,
+        )
 
         processing_reaction_applied, thread_context = await _prepare_thread_context(
             services=services,
@@ -92,6 +97,7 @@ async def handle_comment(
             store=services.store,
             outline_client=services.outline_client,
             memory_manager=services.memory_manager,
+            collection_memory_sync=services.collection_memory_sync,
             document_memory_manager=services.document_memory_manager,
             prepared=prepared,
             thread_context=thread_context,

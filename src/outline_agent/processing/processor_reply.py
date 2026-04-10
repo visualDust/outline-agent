@@ -6,9 +6,10 @@ from ..clients.outline_models import OutlineCollection, OutlineDocument
 from ..core.config import AppSettings
 from ..core.logging import logger
 from ..core.prompt_registry import PromptPack, PromptRegistry
+from ..managers.collection_memory_sync import CollectionMemorySync
+from ..managers.document_memory_manager import DocumentMemoryManager
 from ..managers.memory_action_manager import MemoryActionManager
 from ..managers.memory_manager import CollectionMemoryManager
-from ..managers.document_memory_manager import DocumentMemoryManager
 from ..state.store import ProcessedEventStore
 from ..state.workspace import CollectionWorkspace
 from .processor_artifacts import (
@@ -35,13 +36,13 @@ from .processor_reply_persistence import (
 from .processor_reply_persistence import (
     record_thread_turn as _record_thread_turn,
 )
-from .reply_stream_coordinator import ReplyStreamCoordinator
 from .processor_side_effects import (
     post_reply_comment as _post_reply_comment,
 )
 from .processor_side_effects import (
     record_progress_comment_state as _record_progress_comment_state,
 )
+from .reply_stream_coordinator import ReplyStreamCoordinator
 from .processor_types import (
     PreparedActionOutcome,
     PreparedRequest,
@@ -74,6 +75,7 @@ async def maybe_apply_memory_actions(
     *,
     settings: AppSettings,
     manager: MemoryActionManager,
+    memory_sync: CollectionMemorySync,
     workspace: CollectionWorkspace,
     collection: OutlineCollection | None,
     document: OutlineDocument,
@@ -107,8 +109,12 @@ async def maybe_apply_memory_actions(
         )
         return "planned-dry-run", preview, context
 
-    apply_result = manager.apply_actions(workspace, plan)
-    status = "applied" if apply_result.applied else "blocked"
+    apply_result = await memory_sync.persist_actions(
+        workspace=workspace,
+        collection=collection,
+        plan=plan,
+    )
+    status = apply_result.status
     context = manager.format_reply_context(
         plan,
         status=status,
@@ -182,6 +188,7 @@ async def persist_reply_and_build_result(
     store: ProcessedEventStore,
     outline_client: OutlineClient,
     memory_manager: CollectionMemoryManager,
+    collection_memory_sync: CollectionMemorySync,
     document_memory_manager: DocumentMemoryManager,
     prepared: PreparedRequest,
     thread_context: PreparedThreadContext,
@@ -201,6 +208,7 @@ async def persist_reply_and_build_result(
         persistence = await _persist_workspace_updates(
             settings=settings,
             memory_manager=memory_manager,
+            collection_memory_sync=collection_memory_sync,
             document_memory_manager=document_memory_manager,
             prepared=prepared,
             thread_context=thread_context,
@@ -265,6 +273,7 @@ async def persist_reply_and_build_result(
     persistence = await _persist_workspace_updates(
         settings=settings,
         memory_manager=memory_manager,
+        collection_memory_sync=collection_memory_sync,
         document_memory_manager=document_memory_manager,
         prepared=prepared,
         thread_context=thread_context,

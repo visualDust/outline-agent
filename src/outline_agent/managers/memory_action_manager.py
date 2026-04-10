@@ -111,25 +111,15 @@ class MemoryActionManager:
         workspace: CollectionWorkspace,
         plan: MemoryActionPlan,
     ) -> MemoryActionApplyResult:
-        text = workspace.read_memory_text()
-        applied: list[str] = []
-        errors: list[str] = []
-        for action in plan.actions:
-            text, applied_entry, error = _apply_action(
-                text,
-                action,
-                max_chars=self.settings.memory_update_entry_max_chars,
-            )
-            if applied_entry:
-                applied.append(applied_entry)
-            if error:
-                errors.append(error)
-
-        if applied:
-            workspace.memory_path.write_text(_ensure_trailing_newline(text), encoding="utf-8")
-            write_memory_index(workspace, text)
-
-        return MemoryActionApplyResult(text=text, applied=applied, errors=errors)
+        result = apply_actions_to_text(
+            workspace.read_memory_text(),
+            plan,
+            max_chars=self.settings.memory_update_entry_max_chars,
+        )
+        if result.applied:
+            workspace.memory_path.write_text(_ensure_trailing_newline(result.text), encoding="utf-8")
+            write_memory_index(workspace, result.text)
+        return result
 
     def preview(self, plan: MemoryActionPlan) -> str | None:
         if not plan.actions:
@@ -166,7 +156,7 @@ class MemoryActionManager:
         user_comment: str,
     ) -> str:
         collection_name = collection.name if collection and collection.name else workspace.collection_name
-        memory_entries = _format_memory_entries(workspace.read_memory_text())
+        memory_entries = _format_memory_entries(workspace.read_memory_text_or_empty())
         return (
             f"Collection: {collection_name}\n"
             f"Collection ID: {workspace.collection_id}\n"
@@ -244,6 +234,28 @@ def _apply_action(
     if action.action == "move":
         return _apply_move(text, action, max_chars=max_chars)
     return text, None, "unsupported action"
+
+
+def apply_actions_to_text(
+    text: str,
+    plan: MemoryActionPlan,
+    *,
+    max_chars: int,
+) -> MemoryActionApplyResult:
+    applied: list[str] = []
+    errors: list[str] = []
+    updated = text
+    for action in plan.actions:
+        updated, applied_entry, error = _apply_action(
+            updated,
+            action,
+            max_chars=max_chars,
+        )
+        if applied_entry:
+            applied.append(applied_entry)
+        if error:
+            errors.append(error)
+    return MemoryActionApplyResult(text=updated, applied=applied, errors=errors)
 
 
 def _apply_add(text: str, action: MemoryAction, *, max_chars: int) -> tuple[str, str | None, str | None]:

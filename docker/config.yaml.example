@@ -59,6 +59,7 @@ features:
 
 runtime:
   dry_run: false
+  collection_memory_document_title: MEMORY
   tool_execution_max_rounds: 10
   tool_execution_max_steps: 6
   tool_execution_chunk_size: 2

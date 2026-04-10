@@ -5,7 +5,7 @@ from pathlib import Path
 from outline_agent.state.workspace import CollectionWorkspaceManager
 
 
-def test_collection_workspace_manager_bootstraps_memory_files(tmp_path: Path) -> None:
+def test_collection_workspace_manager_bootstraps_only_system_prompt_until_memory_is_needed(tmp_path: Path) -> None:
     manager = CollectionWorkspaceManager(tmp_path / "agents")
     workspace = manager.ensure(
         collection_id="107b2669-e0ad-4abd-a66e-28305124edc8",
@@ -16,14 +16,10 @@ def test_collection_workspace_manager_bootstraps_memory_files(tmp_path: Path) ->
     assert workspace.scratch_dir.exists()
     assert workspace.threads_dir.exists()
     assert workspace.system_prompt_path.exists()
-    assert workspace.memory_path.exists()
-
-    memory_text = workspace.memory_path.read_text(encoding="utf-8")
-    assert "Collection ID: 107b2669-e0ad-4abd-a66e-28305124edc8" in memory_text
-    assert "Collection Name: Outline Agent Dev Sandbox" in memory_text
+    assert not workspace.memory_path.exists()
 
     prompt_context = workspace.load_prompt_context(max_chars=10_000)
-    assert "MEMORY.md" in prompt_context
+    assert prompt_context == ""
 
 
 def test_collection_workspace_manager_bootstraps_document_and_thread_files(tmp_path: Path) -> None:

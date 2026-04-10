@@ -131,6 +131,11 @@ class CollectionWorkspace:
     def read_memory_text(self) -> str:
         return self.memory_path.read_text(encoding="utf-8")
 
+    def read_memory_text_or_empty(self) -> str:
+        if not self.memory_path.exists():
+            return ""
+        return self.memory_path.read_text(encoding="utf-8")
+
 
 @dataclass(frozen=True)
 class DocumentWorkspace:
@@ -908,8 +913,21 @@ class CollectionWorkspaceManager:
 
         system_prompt_path = memory_dir / "00_SYSTEM.md"
         memory_path = memory_dir / "MEMORY.md"
+        metadata_path = memory_dir / ".collection.json"
 
         resolved_name = collection_name or collection_id
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "collection_id": collection_id,
+                    "collection_name": resolved_name,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         if not system_prompt_path.exists():
             system_prompt_path.write_text(
                 INITIAL_SYSTEM_TEMPLATE.format(
@@ -919,20 +937,6 @@ class CollectionWorkspaceManager:
                 + "\n",
                 encoding="utf-8",
             )
-
-        if not memory_path.exists():
-            memory_path.write_text(
-                INITIAL_MEMORY_TEMPLATE.format(
-                    collection_id=collection_id,
-                    collection_name=resolved_name,
-                    created_note="Initialized",
-                ).strip()
-                + "\n",
-                encoding="utf-8",
-            )
-
-        self._refresh_collection_metadata(memory_path, collection_id=collection_id, collection_name=resolved_name)
-        self._ensure_memory_sections(memory_path)
 
         return CollectionWorkspace(
             collection_id=collection_id,
@@ -1206,10 +1210,7 @@ class CollectionWorkspaceManager:
         for workspace_dir in sorted(self.root.iterdir()):
             if not workspace_dir.is_dir() or workspace_dir == self.archived_collections_dir:
                 continue
-            collection_id = self._read_collection_metadata_value(
-                workspace_dir / "memory" / "MEMORY.md",
-                "Collection ID",
-            )
+            collection_id = self._collection_id_from_workspace_dir(workspace_dir)
             if collection_id:
                 workspaces.append(self._load_collection_workspace(workspace_dir, collection_id=collection_id))
         return workspaces
@@ -1427,8 +1428,15 @@ class CollectionWorkspaceManager:
     def _load_collection_workspace(self, workspace_dir: Path, *, collection_id: str) -> CollectionWorkspace:
         memory_dir = workspace_dir / "memory"
         collection_workspace_dir = workspace_dir / "workspace"
+        metadata = self._read_collection_metadata_file(memory_dir / ".collection.json")
         collection_name = (
-            self._read_collection_metadata_value(memory_dir / "MEMORY.md", "Collection Name") or collection_id
+            metadata.get("collection_name")
+            if isinstance(metadata.get("collection_name"), str) and metadata.get("collection_name")
+            else None
+        ) or (
+            self._read_collection_metadata_value(memory_dir / "MEMORY.md", "Collection Name")
+            or self._collection_name_from_workspace_dir(workspace_dir, collection_id=collection_id)
+            or collection_id
         )
         return CollectionWorkspace(
             collection_id=collection_id,
@@ -1447,6 +1455,41 @@ class CollectionWorkspaceManager:
             memory_path=memory_dir / "MEMORY.md",
         )
 
+    def build_initial_memory_text(self, *, collection_id: str, collection_name: str | None) -> str:
+        resolved_name = collection_name or collection_id
+        return (
+            INITIAL_MEMORY_TEMPLATE.format(
+                collection_id=collection_id,
+                collection_name=resolved_name,
+                created_note="Initialized",
+            ).strip()
+            + "\n"
+        )
+
+    def write_collection_memory(
+        self,
+        workspace: CollectionWorkspace,
+        *,
+        text: str,
+        collection_id: str | None = None,
+        collection_name: str | None = None,
+    ) -> None:
+        workspace.memory_dir.mkdir(parents=True, exist_ok=True)
+        workspace.memory_path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
+        self._refresh_collection_metadata(
+            workspace.memory_path,
+            collection_id=collection_id or workspace.collection_id,
+            collection_name=collection_name or workspace.collection_name,
+        )
+        self._ensure_memory_sections(workspace.memory_path)
+
+    def delete_collection_memory(self, workspace: CollectionWorkspace) -> None:
+        if workspace.memory_path.exists():
+            workspace.memory_path.unlink()
+        index_path = workspace.memory_dir / "index.json"
+        if index_path.exists():
+            index_path.unlink()
+
     def _read_collection_metadata_value(self, memory_path: Path, field_name: str) -> str | None:
         if not memory_path.exists():
             return None
@@ -1457,6 +1500,42 @@ class CollectionWorkspaceManager:
             if value:
                 return value
         return None
+
+    def _collection_id_from_workspace_dir(self, workspace_dir: Path) -> str | None:
+        metadata = self._read_collection_metadata_file(workspace_dir / "memory" / ".collection.json")
+        collection_id = metadata.get("collection_id")
+        if isinstance(collection_id, str) and collection_id:
+            return collection_id
+        collection_id = self._read_collection_metadata_value(workspace_dir / "memory" / "MEMORY.md", "Collection ID")
+        if collection_id:
+            return collection_id
+        name = workspace_dir.name.strip()
+        if not name or "-" not in name:
+            return None
+        return name.rsplit("-", 1)[-1] or None
+
+    def _collection_name_from_workspace_dir(self, workspace_dir: Path, *, collection_id: str) -> str | None:
+        metadata = self._read_collection_metadata_file(workspace_dir / "memory" / ".collection.json")
+        collection_name = metadata.get("collection_name")
+        if isinstance(collection_name, str) and collection_name:
+            return collection_name
+        name = workspace_dir.name.strip()
+        suffix = f"-{collection_id}"
+        if not name.endswith(suffix):
+            return None
+        raw = name[: -len(suffix)].strip("-")
+        if not raw:
+            return None
+        return raw.replace("-", " ")
+
+    def _read_collection_metadata_file(self, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     def _list_document_workspaces(self, parent_dir: Path) -> list[DocumentWorkspace]:
         workspaces: list[DocumentWorkspace] = []

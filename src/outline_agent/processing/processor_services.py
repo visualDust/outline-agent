@@ -7,11 +7,12 @@ from ..clients.outline_client import OutlineClient
 from ..core.config import AppSettings
 from ..core.prompt_registry import PromptPack, PromptRegistry
 from ..managers.action_router_manager import ActionRouterManager
+from ..managers.collection_memory_sync import CollectionMemorySync
+from ..managers.document_memory_manager import DocumentMemoryManager
 from ..managers.memory_action_manager import MemoryActionManager
 from ..managers.memory_manager import CollectionMemoryManager
 from ..managers.related_document_manager import RelatedDocumentManager
 from ..managers.same_document_comment_manager import SameDocumentCommentManager
-from ..managers.document_memory_manager import DocumentMemoryManager
 from ..planning import UnifiedExecutionLoop, UnifiedToolPlanner
 from ..state.store import ProcessedEventStore
 from ..state.workspace import CollectionWorkspaceManager
@@ -28,6 +29,7 @@ class ProcessorServices:
     model_client: ModelClient
     memory_action_manager: MemoryActionManager
     memory_manager: CollectionMemoryManager
+    collection_memory_sync: CollectionMemorySync
     workspace_manager: CollectionWorkspaceManager
     tool_registry: ToolRegistry
     related_document_manager: RelatedDocumentManager
@@ -78,6 +80,11 @@ def build_processor_services(
         model_client=model_client,
         memory_action_manager=MemoryActionManager(settings, shared_memory_client, prompt_registry=prompt_registry),
         memory_manager=CollectionMemoryManager(settings, shared_memory_client, prompt_registry=prompt_registry),
+        collection_memory_sync=CollectionMemorySync(
+            settings=settings,
+            outline_client=outline_client,
+            workspace_manager=workspace_manager,
+        ),
         workspace_manager=workspace_manager,
         tool_registry=tool_registry,
         related_document_manager=RelatedDocumentManager(settings, outline_client),

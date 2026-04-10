@@ -203,6 +203,7 @@ async def prepare_action_outcome(
     ) = await _maybe_apply_memory_actions(
         settings=services.settings,
         manager=services.memory_action_manager,
+        memory_sync=services.collection_memory_sync,
         workspace=prepared.workspace,
         collection=prepared.collection,
         document=prepared.document,

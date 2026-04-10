@@ -4,7 +4,14 @@ from ..clients.outline_client import OutlineClient
 from ..clients.outline_models import OutlineComment
 from ..core.config import AppSettings
 from ..core.logging import logger
-from ..models.webhook_models import CollectionDeleteModel, CommentModel, DocumentDeleteModel, WebhookEnvelope
+from ..managers.collection_memory_sync import CollectionMemorySync
+from ..models.webhook_models import (
+    CollectionDeleteModel,
+    CommentModel,
+    DocumentDeleteModel,
+    DocumentEventModel,
+    WebhookEnvelope,
+)
 from ..state.store import ProcessedEventStore
 from ..state.workspace import CollectionWorkspaceManager
 from ..utils.rich_text import extract_image_refs, extract_mentions, extract_prompt_text
@@ -34,7 +41,8 @@ from .processor_types import (
 
 SUPPORTED_COMMENT_EVENTS = {"comments.create", "comments.update", "comments.delete"}
 SUPPORTED_DELETE_EVENTS = {"documents.delete", "collections.delete"}
-SUPPORTED_EVENTS = SUPPORTED_COMMENT_EVENTS | SUPPORTED_DELETE_EVENTS
+SUPPORTED_DOCUMENT_EVENTS = {"documents.create", "documents.update", "documents.delete"}
+SUPPORTED_EVENTS = SUPPORTED_COMMENT_EVENTS | SUPPORTED_DELETE_EVENTS | {"documents.create", "documents.update"}
 
 
 async def prepare_request(
@@ -43,15 +51,27 @@ async def prepare_request(
     store: ProcessedEventStore,
     outline_client: OutlineClient,
     workspace_manager: CollectionWorkspaceManager,
+    collection_memory_sync: CollectionMemorySync,
     envelope: WebhookEnvelope,
 ) -> PreparedRequest | ProcessingResult:
     if envelope.event not in SUPPORTED_EVENTS:
         return ProcessingResult(action="ignored", reason="unsupported-event")
 
     if envelope.event == "documents.delete":
-        return _handle_document_delete(
+        return await _handle_document_delete(
             store=store,
+            outline_client=outline_client,
             workspace_manager=workspace_manager,
+            collection_memory_sync=collection_memory_sync,
+            envelope=envelope,
+        )
+
+    if envelope.event in {"documents.create", "documents.update"}:
+        return await _handle_document_event(
+            store=store,
+            outline_client=outline_client,
+            workspace_manager=workspace_manager,
+            collection_memory_sync=collection_memory_sync,
             envelope=envelope,
         )
 
@@ -288,10 +308,12 @@ async def prepare_request(
     )
 
 
-def _handle_document_delete(
+async def _handle_document_delete(
     *,
     store: ProcessedEventStore,
+    outline_client: OutlineClient,
     workspace_manager: CollectionWorkspaceManager,
+    collection_memory_sync: CollectionMemorySync,
     envelope: WebhookEnvelope,
 ) -> ProcessingResult:
     model = envelope.payload.model
@@ -317,6 +339,40 @@ def _handle_document_delete(
         collection_id,
         model.title,
     )
+
+    if collection_id and collection_memory_sync.is_involved(collection_id):
+        collection = None
+        try:
+            document_stub = await outline_client.document_info(document_id)
+        except Exception:
+            document_stub = None
+        if document_stub is not None:
+            try:
+                collection = await _resolve_collection(
+                    outline_client=outline_client,
+                    document=document_stub,
+                )
+            except Exception:
+                collection = None
+        memory_workspace = workspace_manager.ensure(
+            collection_id=collection_id,
+            collection_name=collection.name if collection else collection_id,
+        )
+        memory_delete_result = await collection_memory_sync.handle_deleted_document_event(
+            collection_id=collection_id,
+            workspace=memory_workspace,
+            document_id=document_id,
+            document_title=model.title,
+        )
+        if memory_delete_result.status == "synced":
+            store.add(semantic_key)
+            return ProcessingResult(
+                action="synced",
+                reason=memory_delete_result.reason,
+                document_id=document_id,
+                collection_id=collection_id,
+                collection_workspace=str(memory_workspace.root_dir),
+            )
 
     workspace = (
         workspace_manager.find_collection(collection_id)
@@ -562,3 +618,59 @@ def _select_thread_comments(comments: list[OutlineComment], thread_root_id: str)
     ]
     related.sort(key=lambda item: (item.created_at or "", item.id))
     return related
+
+
+async def _handle_document_event(
+    *,
+    store: ProcessedEventStore,
+    outline_client: OutlineClient,
+    workspace_manager: CollectionWorkspaceManager,
+    collection_memory_sync: CollectionMemorySync,
+    envelope: WebhookEnvelope,
+) -> ProcessingResult:
+    model = envelope.payload.model
+    if not isinstance(model, DocumentEventModel):
+        return ProcessingResult(action="ignored", reason="invalid-document-event-payload")
+
+    semantic_key = f"{envelope.event}:{envelope.id}"
+    document_id = model.resolved_document_id
+    if store.contains(semantic_key):
+        return ProcessingResult(action="ignored", reason="duplicate-document-event", document_id=document_id)
+
+    remote_document = await outline_client.document_info(document_id)
+    collection_id = remote_document.collection_id or model.collectionId
+    if not collection_id:
+        store.add(semantic_key)
+        return ProcessingResult(action="ignored", reason="document-event-missing-collection", document_id=document_id)
+
+    if not collection_memory_sync.is_involved(collection_id):
+        store.add(semantic_key)
+        return ProcessingResult(
+            action="ignored",
+            reason="collection-memory-not-involved",
+            document_id=document_id,
+            collection_id=collection_id,
+        )
+
+    collection = await _resolve_collection(
+        outline_client=outline_client,
+        document=remote_document,
+    )
+    workspace = workspace_manager.ensure(
+        collection_id=collection_id,
+        collection_name=collection.name if collection else collection_id,
+    )
+    refresh = await collection_memory_sync.refresh_from_event(
+        collection_id=collection_id,
+        workspace=workspace,
+        document_id=document_id,
+        collection=collection,
+    )
+    store.add(semantic_key)
+    return ProcessingResult(
+        action="synced" if refresh.status == "synced" else "ignored",
+        reason=refresh.reason,
+        document_id=document_id,
+        collection_id=collection_id,
+        collection_workspace=str(workspace.root_dir),
+    )

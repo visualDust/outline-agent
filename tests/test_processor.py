@@ -103,6 +103,7 @@ class DummyOutlineClient:
         self.comment_items: list[OutlineComment] | None = None
         self.search_results: list[OutlineDocument] = []
         self.extra_documents: dict[str, OutlineDocument] = {}
+        self.document_search_calls: list[tuple[str, str | None, int]] = []
 
     async def collection_info(self, collection_id: str) -> OutlineCollection:
         return OutlineCollection(
@@ -130,6 +131,7 @@ class DummyOutlineClient:
         collection_id: str | None = None,
         limit: int = 25,
     ) -> list[OutlineDocument]:
+        self.document_search_calls.append((query, collection_id, limit))
         return self.search_results[:limit]
 
     async def comments_list(self, document_id: str, limit: int = 25, offset: int = 0) -> list[OutlineComment]:
@@ -1322,6 +1324,170 @@ def test_comment_processor_persists_document_memory_context_across_turns(tmp_pat
     memory_text = memory_path.read_text(encoding="utf-8")
     assert "The thread started with a summary request and then asked for more detail." in memory_text
     assert "What level of expansion the user wants next." in memory_text
+
+
+def test_comment_processor_pulls_collection_memory_once_per_process_on_first_chat(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        runtime_outline_user_id=AGENT_USER_ID,
+        mention_aliases=["@agent"],
+        trigger_mode="mention",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=False,
+        memory_update_enabled=False,
+        document_memory_update_enabled=False,
+    )
+    outline_client = DummyOutlineClient()
+    memory_doc = OutlineDocument(
+        id="memory-doc-1",
+        title="MEMORY",
+        collection_id="107b2669-e0ad-4abd-a66e-28305124edc8",
+        url="/doc/memory-doc-1",
+        text="# MEMORY\n\n## Durable Facts\n- Remote memory from Outline\n",
+    )
+    outline_client.search_results = [memory_doc]
+    outline_client.extra_documents[memory_doc.id] = memory_doc
+    processor = CommentProcessor(
+        settings=settings,
+        store=ProcessedEventStore(tmp_path / "processed.json"),
+        outline_client=outline_client,
+        model_client=SimpleModelClient(),
+    )
+
+    first_result = asyncio.run(processor.handle(_load_fixture()))
+    second_payload = _load_fixture().model_dump()
+    second_payload["id"] = "evt-2"
+    second_payload["payload"]["id"] = "payload-2"
+    second_payload["payload"]["model"]["id"] = "comment-2"
+    second_payload["payload"]["model"]["data"]["content"][0]["content"][-1]["text"] = " please summarize this again"
+    second_result = asyncio.run(processor.handle(WebhookEnvelope.model_validate(second_payload)))
+
+    memory_path = Path(first_result.collection_workspace) / "memory" / "MEMORY.md"
+    assert memory_path.exists()
+    assert "Remote memory from Outline" in memory_path.read_text(encoding="utf-8")
+    assert first_result.action == "replied"
+    assert second_result.action == "replied"
+    memory_search_calls = [call for call in outline_client.document_search_calls if call[0] == "MEMORY"]
+    assert len(memory_search_calls) == 1
+    assert outline_client.created_documents == []
+
+
+def test_document_update_event_refreshes_collection_memory_after_collection_is_involved(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        runtime_outline_user_id=AGENT_USER_ID,
+        mention_aliases=["@agent"],
+        trigger_mode="mention",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=False,
+        memory_update_enabled=False,
+        document_memory_update_enabled=False,
+    )
+    outline_client = DummyOutlineClient()
+    processor = CommentProcessor(
+        settings=settings,
+        store=ProcessedEventStore(tmp_path / "processed.json"),
+        outline_client=outline_client,
+        model_client=SimpleModelClient(),
+    )
+
+    first_result = asyncio.run(processor.handle(_load_fixture()))
+    memory_doc = OutlineDocument(
+        id="memory-doc-2",
+        title="MEMORY",
+        collection_id="107b2669-e0ad-4abd-a66e-28305124edc8",
+        url="/doc/memory-doc-2",
+        text="# MEMORY\n\n## Durable Facts\n- Updated from webhook\n",
+    )
+    outline_client.extra_documents[memory_doc.id] = memory_doc
+    event = WebhookEnvelope.model_validate(
+        {
+            "id": "evt-doc-update-1",
+            "event": "documents.update",
+            "actorId": "user-1",
+            "payload": {
+                "id": "payload-doc-update-1",
+                "model": {
+                    "id": memory_doc.id,
+                    "documentId": memory_doc.id,
+                    "collectionId": memory_doc.collection_id,
+                    "title": memory_doc.title,
+                },
+            },
+        }
+    )
+
+    result = asyncio.run(processor.handle(event))
+
+    memory_path = Path(first_result.collection_workspace) / "memory" / "MEMORY.md"
+    assert result.action == "synced"
+    assert result.reason == "webhook-refresh"
+    assert memory_path.exists()
+    assert "Updated from webhook" in memory_path.read_text(encoding="utf-8")
+
+
+def test_document_delete_event_clears_collection_memory_cache_after_collection_is_involved(tmp_path: Path) -> None:
+    settings = AppSettings(
+        outline_api_key="ol_api_test",
+        outline_webhook_signing_secret="ol_whs_test",
+        runtime_outline_user_id=AGENT_USER_ID,
+        mention_aliases=["@agent"],
+        trigger_mode="mention",
+        workspace_root=tmp_path / "agents",
+        dedupe_store_path=tmp_path / "processed.json",
+        dry_run=False,
+        memory_update_enabled=False,
+        document_memory_update_enabled=False,
+    )
+    outline_client = DummyOutlineClient()
+    memory_doc = OutlineDocument(
+        id="memory-doc-delete-1",
+        title="MEMORY",
+        collection_id="107b2669-e0ad-4abd-a66e-28305124edc8",
+        url="/doc/memory-doc-delete-1",
+        text="# MEMORY\n\n## Durable Facts\n- Remote memory before delete\n",
+    )
+    outline_client.search_results = [memory_doc]
+    outline_client.extra_documents[memory_doc.id] = memory_doc
+    processor = CommentProcessor(
+        settings=settings,
+        store=ProcessedEventStore(tmp_path / "processed.json"),
+        outline_client=outline_client,
+        model_client=SimpleModelClient(),
+    )
+
+    first_result = asyncio.run(processor.handle(_load_fixture()))
+    memory_path = Path(first_result.collection_workspace) / "memory" / "MEMORY.md"
+    index_path = Path(first_result.collection_workspace) / "memory" / "index.json"
+    assert memory_path.exists()
+    assert index_path.exists()
+
+    delete_event = WebhookEnvelope.model_validate(
+        {
+            "id": "evt-doc-delete-memory-1",
+            "event": "documents.delete",
+            "payload": {
+                "id": "payload-doc-delete-memory-1",
+                "model": {
+                    "id": memory_doc.id,
+                    "documentId": memory_doc.id,
+                    "collectionId": memory_doc.collection_id,
+                    "title": memory_doc.title,
+                },
+            },
+        }
+    )
+
+    result = asyncio.run(processor.handle(delete_event))
+
+    assert result.action == "synced"
+    assert result.reason == "memory-document-deleted"
+    assert not memory_path.exists()
+    assert not index_path.exists()
 
 def test_comment_processor_triggers_on_reply_to_agent_without_explicit_mention(tmp_path: Path) -> None:
     settings = AppSettings(
@@ -3198,12 +3364,13 @@ def test_comment_processor_blocks_repeated_draft_only_document_update_rounds(tmp
     assert len(tool_model_client.calls) == 2
     assert len(document_update_model_client.calls) == 1
     assert outline_client.updated_documents == []
-    assert outline_client.updated_comments[-1] == {
-        "comment_id": "comment-1",
+    assert outline_client.posted[-1] == {
+        "document_id": "d8119461-65ae-4218-9f70-514c06ca4d2a",
         "text": (
             "I stopped because the next round was only drafting the same document change again "
             "without applying it or gathering any new state."
         ),
+        "parent_comment_id": "cad435c3-1cb9-4dd5-9254-d355b02fd795",
     }
     assert result.thread_workspace is not None
     state = json.loads((Path(result.thread_workspace) / "state.json").read_text(encoding="utf-8"))

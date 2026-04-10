@@ -9,6 +9,9 @@ This document describes the current runtime storage model after the document-mem
 - The only durable semantic memory layers are:
   - **collection memory**
   - **document memory**
+- Collection memory is **remote-first**:
+  - the Outline document titled `MEMORY` (configurable) is the user-facing source of truth
+  - `memory/MEMORY.md` is the local cache used for prompting and local inspection
 - Thread storage now keeps:
   - transcript
   - runtime state
@@ -22,6 +25,7 @@ For one collection, the workspace now looks like this:
 ```text
 <workspace_root>/<collection_id>/
   memory/
+    .collection.json
     00_SYSTEM.md
     MEMORY.md
     index.json
@@ -64,8 +68,9 @@ Purpose:
 Notes:
 
 - `00_SYSTEM.md` is included into the final system prompt as collection-local instructions
-- `MEMORY.md` stores collection facts, decisions, and working notes
+- `MEMORY.md` is the local cache of the remote collection memory document
 - `workspace/` is where tools read/write files and where generated artifacts live before upload
+- the remote Outline document title defaults to `MEMORY` and can be changed with `runtime.collection_memory_document_title`
 
 ### 2. Document layer
 
@@ -116,7 +121,9 @@ It is rebuilt from Outline comments on webhook events so deletes and edits are r
 
 ### Semantic memory truth
 
-- collection-wide memory truth: `memory/MEMORY.md`
+- collection-wide memory truth:
+  - remote source of truth: Outline document titled `MEMORY` by default
+  - local cache: `memory/MEMORY.md`
 - document-wide memory truth: `documents/<document_id>/MEMORY.md`
 
 These are model-maintained summaries, not raw transcript mirrors.
@@ -144,7 +151,17 @@ On a new comment:
 4. document comments are fetched
 5. thread transcript is rebuilt/synced into `comments.json`
 6. thread runtime state is refreshed from transcript
-7. if trigger conditions pass, the agent is invoked
+7. if trigger conditions pass, the runtime performs a one-time per-process pull/check for the collection memory document
+8. the agent is invoked
+
+### `documents.create` / `documents.update`
+
+If the affected document matches the configured collection memory document title:
+
+1. only collections already involved by the agent in the current process are considered
+2. the runtime fetches the remote document body
+3. the local cache `memory/MEMORY.md` is created or replaced
+4. `memory/index.json` is regenerated
 
 ### `comments.update`
 
@@ -199,6 +216,7 @@ Managed by:
 
 - `src/outline_agent/managers/memory_manager.py`
 - `src/outline_agent/managers/memory_action_manager.py`
+- `src/outline_agent/managers/collection_memory_sync.py`
 
 Two paths exist:
 
@@ -208,8 +226,9 @@ If the user explicitly asks to remember / forget / correct collection memory:
 
 1. router enables memory action path
 2. memory action manager proposes `add|update|delete|move`
-3. `memory/MEMORY.md` is edited directly
-4. `memory/index.json` is regenerated
+3. the remote collection memory document is created on demand or updated
+4. the local cache `memory/MEMORY.md` is refreshed
+5. `memory/index.json` is regenerated
 
 This path is user-controlled and intentional.
 
@@ -219,8 +238,9 @@ After a successful reply:
 
 1. the collection memory updater reviews the latest interaction
 2. it proposes durable collection-level entries
-3. `memory/MEMORY.md` is appended/updated
-4. `memory/index.json` is regenerated
+3. the remote collection memory document is created on demand or updated
+4. the local cache `memory/MEMORY.md` is refreshed
+5. `memory/index.json` is regenerated
 
 This should only retain reusable cross-document/cross-thread memory.
 
@@ -328,7 +348,7 @@ These prompts still have important hard-coded protocol/skeleton pieces in code.
 | `src/outline_agent/planning/tool_planner.py::UNIFIED_TOOL_PLANNER_SYSTEM_PROMPT` | protocol prompt | tool planner protocol/schema; policy addendum now comes from the internal prompt policy file / override path |
 | `src/outline_agent/planning/tool_planner.py::_build_user_prompt` | user prompt template | provides tool catalog, work-dir inventory, prior rounds, document memory, attachments, and comment context |
 | `src/outline_agent/state/workspace.py::INITIAL_SYSTEM_TEMPLATE` | initialization template | bootstrap template for collection `memory/00_SYSTEM.md` |
-| `src/outline_agent/state/workspace.py::INITIAL_MEMORY_TEMPLATE` | initialization template | bootstrap template for collection `memory/MEMORY.md` |
+| `src/outline_agent/state/workspace.py::INITIAL_MEMORY_TEMPLATE` | initialization template | template used when collection memory is first created locally/remotely |
 | `src/outline_agent/state/workspace.py::INITIAL_DOCUMENT_MEMORY_TEMPLATE` | initialization template | bootstrap template for document `documents/<document_id>/MEMORY.md` |
 
 ### What is not currently externalized

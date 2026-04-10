@@ -127,7 +127,7 @@ class CollectionMemoryManager:
         assistant_reply: str,
     ) -> str:
         collection_name = collection.name if collection and collection.name else workspace.collection_name
-        memory_excerpt = _truncate(workspace.read_memory_text(), self.settings.max_memory_chars)
+        memory_excerpt = _truncate(workspace.read_memory_text_or_empty(), self.settings.max_memory_chars)
         document_excerpt = _truncate(document.text or "", self.settings.max_document_chars)
         return (
             f"Collection: {collection_name}\n"
@@ -221,6 +221,25 @@ def _truncate(text: str, limit: int) -> str:
 
 def _ensure_trailing_newline(text: str) -> str:
     return text if text.endswith("\n") else text + "\n"
+
+
+def apply_update_to_text(text: str, proposal: MemoryUpdateProposal) -> tuple[str, list[str]]:
+    if not proposal.should_write or not proposal.entries:
+        return text, []
+
+    updated = text
+    applied: list[str] = []
+    for section in ("facts", "decisions", "notes"):
+        section_entries = [entry.text for entry in proposal.entries if entry.section == section]
+        if not section_entries:
+            continue
+        updated, appended = _append_entries_to_section(
+            text=updated,
+            heading=MEMORY_SECTION_HEADINGS[section],
+            entries=section_entries,
+        )
+        applied.extend(f"[{section}] {item}" for item in appended)
+    return _ensure_trailing_newline(updated), applied
 
 
 def write_memory_index(workspace: CollectionWorkspace, text: str | None = None) -> None:

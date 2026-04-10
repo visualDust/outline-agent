@@ -71,6 +71,21 @@ async def lifespan(_: FastAPI):
         )
     elif settings.tool_use_enabled:
         logger.warning("ask_web_search is unavailable: {}", web_search_probe.reason or "unknown reason")
+    outline_client = None
+    store = None
+    processor = None
+    try:
+        outline_client, store = build_request_resources(settings)
+        processor = build_comment_processor(
+            settings=settings,
+            outline_client=outline_client,
+            store=store,
+        )
+    except Exception:
+        logger.exception("Failed to initialize shared Outline processor resources")
+    app.state.outline_client = outline_client
+    app.state.store = store
+    app.state.processor = processor
     yield
 
 
@@ -189,6 +204,8 @@ async def outline_webhook(request: Request) -> JSONResponse:
         "comments.create",
         "comments.update",
         "comments.delete",
+        "documents.create",
+        "documents.update",
         "documents.delete",
         "collections.delete",
     }:
@@ -208,15 +225,17 @@ async def outline_webhook(request: Request) -> JSONResponse:
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=f"invalid webhook payload: {exc}") from exc
 
-    outline_client = None
-    store = None
     try:
-        outline_client, store = build_request_resources(settings)
-        processor = build_comment_processor(
-            settings=settings,
-            outline_client=outline_client,
-            store=store,
-        )
+        outline_client = getattr(app.state, "outline_client", None)
+        store = getattr(app.state, "store", None)
+        processor = getattr(app.state, "processor", None)
+        if outline_client is None or store is None or processor is None:
+            outline_client, store = build_request_resources(settings)
+            processor = build_comment_processor(
+                settings=settings,
+                outline_client=outline_client,
+                store=store,
+            )
         result = await processor.handle(envelope)
         logger.info(
             "Webhook processed: action={}, reason={}, comment_id={}, document_id={}, collection_id={}",

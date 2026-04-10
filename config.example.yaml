@@ -119,6 +119,8 @@ features:
 runtime:
   # If true, plan and simulate side effects without actually mutating Outline state.
   dry_run: false
+  # Title of the remote Outline document used for collection memory.
+  collection_memory_document_title: MEMORY
   # Maximum number of plan/replan rounds for one request.
   tool_execution_max_rounds: 10
   # Maximum number of steps the planner may propose in one round.

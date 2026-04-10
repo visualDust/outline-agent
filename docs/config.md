@@ -93,6 +93,7 @@ features:
 
 runtime:
   dry_run: false
+  collection_memory_document_title: MEMORY
   tool_execution_max_rounds: 10
   tool_execution_max_steps: 6
   tool_execution_chunk_size: 2
@@ -231,6 +232,7 @@ Packaged prompts live under `src/outline_agent/assets/prompts/`, while user over
 | Field | Required | Default | Purpose | Notes |
 | --- | --- | --- | --- | --- |
 | `runtime.dry_run` | No | `false` | Simulates side effects without mutating Outline state. | Useful for testing plans and prompts safely. |
+| `runtime.collection_memory_document_title` | No | `MEMORY` | Title of the remote Outline document used for collection-wide memory. | The runtime lazily pulls this document on the first involved chat after startup, mirrors it into local `memory/MEMORY.md`, and only creates it on the first actual memory write. |
 | `runtime.tool_execution_max_rounds` | No | `10` | Maximum number of planning/replanning rounds for one request. | Increase this for more complex tool-driven tasks. |
 | `runtime.tool_execution_max_steps` | No | `6` | Maximum number of steps the planner may propose in one round. | This is the planner budget, not the total global task budget. |
 | `runtime.tool_execution_chunk_size` | No | `2` | Number of planned steps actually executed before replanning. | Smaller chunks improve adaptability after partial failures. |

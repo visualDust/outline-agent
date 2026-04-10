@@ -493,6 +493,7 @@ class AppSettings(BaseSettings):
     thread_turn_max_chars: int = 280
     memory_update_max_entries: int = 3
     memory_update_entry_max_chars: int = 180
+    collection_memory_document_title: str = "MEMORY"
     document_memory_update_enabled: bool = True
     document_memory_model_ref: str | None = None
     document_memory_summary_max_chars: int = 320

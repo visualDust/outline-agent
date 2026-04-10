@@ -545,6 +545,9 @@ async def _iter_sse_events(response: httpx.Response) -> AsyncIterator[tuple[str 
         if line.startswith(":"):
             continue
         if line.startswith("event:"):
+            if data_lines:
+                yield current_event, "\n".join(data_lines)
+                data_lines = []
             current_event = line[6:].strip() or None
             continue
         if line.startswith("data:"):

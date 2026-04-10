@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from ..core.config import AppSettings
 from ..core.logging import logger
-from ..managers.memory_manager import CollectionMemoryManager
+from ..managers.collection_memory_sync import CollectionMemorySync
 from ..managers.document_memory_manager import DocumentMemoryManager
+from ..managers.memory_manager import CollectionMemoryManager
 from .processor_context import (
     format_action_route_preview as _format_action_route_preview,
 )
@@ -30,6 +31,7 @@ async def maybe_update_memory(
     *,
     settings: AppSettings,
     manager: CollectionMemoryManager,
+    memory_sync: CollectionMemorySync,
     prepared: PreparedRequest,
     thread_context: PreparedThreadContext,
     action_outcome: PreparedActionOutcome,
@@ -52,9 +54,13 @@ async def maybe_update_memory(
     if settings.dry_run:
         return manager.preview(proposal)
 
-    applied = manager.apply_update(prepared.workspace, proposal)
-    if applied:
-        return " ; ".join(applied)
+    persist_result = await memory_sync.persist_update(
+        workspace=prepared.workspace,
+        collection=prepared.collection,
+        proposal=proposal,
+    )
+    if persist_result.applied:
+        return " ; ".join(persist_result.applied)
     return manager.preview(proposal)
 
 
@@ -111,6 +117,7 @@ async def persist_workspace_updates(
     *,
     settings: AppSettings,
     memory_manager: CollectionMemoryManager,
+    collection_memory_sync: CollectionMemorySync,
     document_memory_manager: DocumentMemoryManager,
     prepared: PreparedRequest,
     thread_context: PreparedThreadContext,
@@ -130,6 +137,7 @@ async def persist_workspace_updates(
         await maybe_update_memory(
             settings=settings,
             manager=memory_manager,
+            memory_sync=collection_memory_sync,
             prepared=prepared,
             thread_context=thread_context,
             action_outcome=action_outcome,
